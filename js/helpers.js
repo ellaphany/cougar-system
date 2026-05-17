@@ -45,13 +45,51 @@ function exportJSON(data, filename) {
   URL.revokeObjectURL(url);
 }
 
-function rosterSelect(id = "form-d4") {
-  return `<select id="${id}" style="padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px"><option value="">Select...</option>${STATE.roster.map(r => `<option value="${r.id}">${r.id} ${r.name}</option>`).join("")}</select>`;
+function rosterSelect(id = "form-d4", required = true, selected = "") {
+  return `<select id="${id}" ${required ? "required" : ""} style="padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px"><option value="">Select...</option>${STATE.roster.map(r => `<option value="${r.id}" ${r.id === selected ? "selected" : ""}>${r.id} ${r.name}</option>`).join("")}</select>`;
 }
-function formField(id, label, type = "text", placeholder = "") {
-  return `<div class="form-group"><label>${label}</label><input id="${id}" type="${type}" placeholder="${placeholder}"></div>`;
+function formField(id, label, type = "text", placeholder = "", extra = "") {
+  const ph = placeholder ? ` placeholder="${placeholder}"` : "";
+  return `<div class="form-group"><label>${label}</label><input id="${id}" type="${type}"${ph} ${extra}></div>`;
 }
-function formSelect(id, label, options) {
-  return `<div class="form-group"><label>${label}</label><select id="${id}">${options.map(o => typeof o === "string" ? `<option value="${o}">${o}</option>` : `<option value="${o[0]}">${o[1]}</option>`).join("")}</select></div>`;
+function formSelect(id, label, options, required = false, selected = "") {
+  return `<div class="form-group"><label>${label}</label><select id="${id}" ${required ? "required" : ""}>${options.map(o => {
+    const val = typeof o === "string" ? o : o[0];
+    const lab = typeof o === "string" ? o : o[1];
+    return `<option value="${val}" ${String(val) === String(selected) ? "selected" : ""}>${lab}</option>`;
+  }).join("")}</select></div>`;
 }
 const gv = id => document.getElementById(id)?.value || "";
+
+// Escape user-supplied text for safe interpolation into HTML attribute values.
+const escapeAttr = s => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+// Local-time today as YYYY-MM-DD (avoids toISOString's UTC shift).
+function todayISO() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// "2026-05-17" → "17 May 2026" — matches what Apps Script formats sheet dates as.
+function isoToDisplayDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// "17 May 2026" or "17 May" → "2026-05-17" — for pre-filling <input type=date>.
+// If year is missing, falls back to current year (matches the old free-text shape).
+function displayDateToISO(s) {
+  if (!s) return "";
+  const months = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+  const m = String(s).match(/^(\d{1,2})\s+(\w{3})(?:\s+(\d{4}))?/);
+  if (!m) return "";
+  const mon = months[m[2]];
+  if (!mon) return "";
+  const day = m[1].padStart(2, "0");
+  const year = m[3] || String(new Date().getFullYear());
+  return `${year}-${mon}-${day}`;
+}

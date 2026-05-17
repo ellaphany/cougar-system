@@ -77,3 +77,6 @@ tr:hover{background:var(--surface2)}
 
 /* Empty state */
 .empty-state{padding:40px;text-align:center;color:var(--muted)}
+
+/* Inline edit button on table rows */
+.btn-icon{padding:2px 8px;font-size:14px;line-height:1.2;min-width:0}
