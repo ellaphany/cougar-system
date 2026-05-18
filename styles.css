@@ -17,6 +17,12 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 #topbar{padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:center}
 #topbar input{flex:1;max-width:350px;padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-size:12px;outline:none}
+#topbar-filters{margin-left:auto;display:flex;gap:6px;align-items:center}
+#topbar-filters .filter-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.topbar-select{padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-size:12px;outline:none;min-width:78px}
+.topbar-select:disabled{opacity:.4;cursor:not-allowed}
+/* Highlight selectors when a filter is active so the global scope is obvious. */
+.topbar-select.active{border-color:var(--accent);color:var(--accent);background:#58A6FF11}
 #content{flex:1;padding:20px;overflow-y:auto}
 
 /* Components */

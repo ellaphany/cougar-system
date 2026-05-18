@@ -3,6 +3,39 @@
 
 const getName = d4 => STATE.roster.find(r => r.id === d4)?.name || d4;
 
+// ── Global platoon/section scope ─────────────────────────
+// Filter applies to every per-recruit view (Roster, Medical, IPPT, RM, SOC,
+// Polar, Dashboard counts). Attendance is per-conduct (no recruit linkage in
+// the entry shape), so it stays company-wide.
+
+const isFilterActive = () => !!(STATE.filterPlt || STATE.filterSect);
+
+function filteredRoster() {
+  if (!isFilterActive()) return STATE.roster;
+  return STATE.roster.filter(r => {
+    if (STATE.filterPlt && String(r.plt) !== String(STATE.filterPlt)) return false;
+    if (STATE.filterSect && String(r.sect) !== String(STATE.filterSect)) return false;
+    return true;
+  });
+}
+
+// Returns null when no filter is active so callers can skip the Set lookup
+// on the hot render path entirely. Use with passesFilter(d4, visible).
+function visibleD4Set() {
+  if (!isFilterActive()) return null;
+  return new Set(filteredRoster().map(r => r.id));
+}
+
+const passesFilter = (d4, visible) => !visible || visible.has(d4);
+
+function filterLabel() {
+  if (!isFilterActive()) return "";
+  const parts = [];
+  if (STATE.filterPlt) parts.push("P" + STATE.filterPlt);
+  if (STATE.filterSect) parts.push("S" + STATE.filterSect);
+  return parts.join("");
+}
+
 // Short sequential IDs instead of timestamps
 let _idCounter = Math.floor(Math.random() * 9000) + 1000;
 const nextId = () => ++_idCounter;

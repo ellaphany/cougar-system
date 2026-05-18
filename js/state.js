@@ -11,12 +11,17 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzazMTu4y4XjjDX
 const STORAGE_KEY = "cougar-data-v2";
 const STORAGE_KEY_LEGACY = "cougar-data"; // v1 — contained hardcoded personnel fallback
 const AUTH_KEY = "cougar-auth";
+const FILTER_KEY = "cougar-filter";
 
 const STATE = {
   nav: "dashboard",
   apiUrl: APPS_SCRIPT_URL,
   authToken: localStorage.getItem(AUTH_KEY) || "",
   roster: [], medical: [], attendance: [], ippt: [], rm: [], soc: [], polar: [],
+  // Global view scope: "" = all. Persisted across reloads so leaving the app
+  // mid-task and coming back doesn't blow away the section you were focused on.
+  filterPlt: "",
+  filterSect: "",
   charts: {}
 };
 
@@ -50,4 +55,18 @@ function setAuthToken(token) {
   STATE.authToken = token || "";
   if (token) localStorage.setItem(AUTH_KEY, token);
   else localStorage.removeItem(AUTH_KEY);
+}
+
+function loadFilter() {
+  try {
+    const raw = localStorage.getItem(FILTER_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    STATE.filterPlt = d.plt || "";
+    STATE.filterSect = d.sect || "";
+  } catch { /* keep defaults */ }
+}
+
+function saveFilter() {
+  localStorage.setItem(FILTER_KEY, JSON.stringify({ plt: STATE.filterPlt, sect: STATE.filterSect }));
 }

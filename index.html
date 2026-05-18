@@ -38,6 +38,12 @@
     <span>🔍</span>
     <input id="search-input" placeholder="Search 4D or Name...">
     <div id="search-results" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+    <div id="topbar-filters">
+      <span class="filter-label">Scope</span>
+      <select id="filter-plt" class="topbar-select" title="Filter by platoon"></select>
+      <select id="filter-sect" class="topbar-select" title="Filter by section"></select>
+      <button id="filter-clear" class="btn btn-icon" title="Clear filter" style="display:none">✕</button>
+    </div>
   </div>
   <div id="content"></div>
 </div>

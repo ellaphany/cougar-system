@@ -1,0 +1,33 @@
+for this project, my vision is to make an archive of sheets per conduct, and then have a master sheet compiling those archives. therefore, we ahve more data, and the more meaningful things we can analyze. 
+
+for each conduct, I want there to have an attendance. for the master spreadsheet, show the following columns: 
+date,	conduct,	total,	participating, LMS participation,	px,	rsi,	fallout,	participation rate, LMS participation rate (lms participation / total participating), remarks (special remarks about possible data inconsistencies condensed into a few words for certain recruits), by
+
+for each conduct, there must be an attendance spreadsheet. for those who never participate, we need the Date, 4D, Name, RSI/RSO, Status, Reason
+
+for those who do, note down their avg HR, max HR, calories burnt (kcal), 
+Efficiency Score = kcal / avg HR — are they getting more output per heartbeat?
+Intensity Score = avg HR / max HR for that session — how close to their ceiling were they working?
+Recovery Indicator = max HR trend over identical sessions — a declining max HR at the same workload suggests either improved fitness or fatigue/overtraining (context matters)
+Workload Score = avg HR × session duration — total cardiac workload, useful for periodisation
+
+whether its two spreadsheets, or one, its up to you. 
+
+Then, as for the UI, make sure you highlight with color the numbers that matter. And then I also want to make graphs that can reflect the recruits growth in these metrics ( avg HR, max HR, calories burnt (kcal), 
+Efficiency Score = kcal / avg HR — are they getting more output per heartbeat?
+Intensity Score = avg HR / max HR for that session — how close to their ceiling were they working?
+Recovery Indicator = max HR trend over identical sessions — a declining max HR at the same workload suggests either improved fitness or fatigue/overtraining (context matters)
+Workload Score = avg HR × session duration — total cardiac workload, useful for periodisation). for the more complex metrics, include a short explanation. Have these graphs and metrics show in a scrollable popup tab when you click on the recruits name in the master roster, in addtion to the current data we ahve there now "DYLAN CHIN
+✕
+C1114 — P1S1 — Active
+RSIs
+0
+IPPT Best
+—
+RMs
+0
+SOCs
+0"
+
+also for hte columns of the master roster, remove the PLT and the SECT column as they are bulky and take up too much space.
+

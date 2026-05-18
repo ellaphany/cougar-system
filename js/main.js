@@ -14,9 +14,69 @@ document.getElementById("search-input").addEventListener("input", e => {
   const q = e.target.value.toLowerCase();
   const res = document.getElementById("search-results");
   if (!q) { res.innerHTML = ""; return; }
-  const matches = STATE.roster.filter(r => r.id.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)).slice(0, 5);
+  // Search respects the global scope filter so results don't show recruits the
+  // user has explicitly scoped out of view.
+  const matches = filteredRoster().filter(r => r.id.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)).slice(0, 5);
   res.innerHTML = matches.map(r => `<button class="btn btn-primary" style="font-size:11px;padding:4px 10px" onclick="openPerson('${r.id}')">${r.id}</button>`).join("");
 });
+
+// ── Global platoon/section filter ────────────────────────
+
+function refreshFilterUI() {
+  const pltSel = document.getElementById("filter-plt");
+  const sectSel = document.getElementById("filter-sect");
+  const clearBtn = document.getElementById("filter-clear");
+  if (!pltSel || !sectSel) return;
+
+  const platoons = [...new Set(STATE.roster.map(r => r.plt).filter(v => v !== "" && v != null))].sort();
+  pltSel.innerHTML = `<option value="">All plts</option>` + platoons.map(p => `<option value="${p}" ${String(p) === String(STATE.filterPlt) ? "selected" : ""}>P${p}</option>`).join("");
+
+  // Sections depend on platoon selection — "section 2" is ambiguous across
+  // platoons, so the section dropdown is disabled until a platoon is picked.
+  if (STATE.filterPlt) {
+    const sections = [...new Set(STATE.roster.filter(r => String(r.plt) === String(STATE.filterPlt)).map(r => r.sect).filter(v => v !== "" && v != null))].sort();
+    sectSel.disabled = false;
+    sectSel.innerHTML = `<option value="">All sects</option>` + sections.map(s => `<option value="${s}" ${String(s) === String(STATE.filterSect) ? "selected" : ""}>S${s}</option>`).join("");
+  } else {
+    sectSel.disabled = true;
+    sectSel.innerHTML = `<option value="">All sects</option>`;
+  }
+
+  pltSel.classList.toggle("active", !!STATE.filterPlt);
+  sectSel.classList.toggle("active", !!STATE.filterSect);
+  if (clearBtn) clearBtn.style.display = isFilterActive() ? "" : "none";
+}
+
+function initFilterControls() {
+  const pltSel = document.getElementById("filter-plt");
+  const sectSel = document.getElementById("filter-sect");
+  const clearBtn = document.getElementById("filter-clear");
+
+  pltSel.addEventListener("change", () => {
+    STATE.filterPlt = pltSel.value;
+    // Drop section if it doesn't exist in the new platoon (or platoon cleared).
+    if (!STATE.filterPlt) STATE.filterSect = "";
+    else {
+      const valid = STATE.roster.some(r => String(r.plt) === String(STATE.filterPlt) && String(r.sect) === String(STATE.filterSect));
+      if (!valid) STATE.filterSect = "";
+    }
+    saveFilter();
+    render();
+  });
+
+  sectSel.addEventListener("change", () => {
+    STATE.filterSect = sectSel.value;
+    saveFilter();
+    render();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    STATE.filterPlt = "";
+    STATE.filterSect = "";
+    saveFilter();
+    render();
+  });
+}
 
 // Redeems ?token=… from the URL if present. Returns true if an attempt was
 // made (regardless of success); the URL param is scrubbed either way so a
@@ -45,6 +105,8 @@ async function tryRedeemInviteFromURL() {
 (async function bootstrap() {
   await tryRedeemInviteFromURL();
   loadLocal();
+  loadFilter();
+  initFilterControls();
   render();
   autoSyncOnLaunch();
 })();
