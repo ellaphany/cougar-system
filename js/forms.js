@@ -7,6 +7,8 @@ function openModal(title, html) {
 }
 function closeModal() {
   document.getElementById("modal-overlay").classList.add("hidden");
+  // Reset the wide-modal flag so the next form-style modal isn't oversized.
+  document.querySelector(".modal")?.classList.remove("wide");
 }
 
 function openPerson(d4) {
@@ -15,6 +17,27 @@ function openPerson(d4) {
   const ippts = STATE.ippt.filter(i => i.d4 === d4).sort((a, b) => a.attempt - b.attempt);
   const rms = STATE.rm.filter(r => r.d4 === d4).sort((a, b) => a.rmNum - b.rmNum);
   const socs = STATE.soc.filter(s => s.d4 === d4).sort((a, b) => a.socNum - b.socNum);
+
+  // Polar sessions, chronological. Dates from the sheet arrive as "17 May 2026",
+  // so convert to ISO for a reliable sort and fall back to raw string if parse fails.
+  const pol = STATE.polar.filter(x => x.d4 === d4).slice().sort((a, b) => {
+    const ai = displayDateToISO(a.date) || a.date || "";
+    const bi = displayDateToISO(b.date) || b.date || "";
+    return ai < bi ? -1 : ai > bi ? 1 : 0;
+  });
+
+  // Per-session derived metrics. Guard against div-by-zero on missing HR/duration.
+  const computed = pol.map(x => {
+    const avg = +x.avgHr || 0, max = +x.maxHr || 0, cal = +x.calories || 0, dur = +x.duration || 0;
+    return {
+      date: x.date, conduct: x.conduct,
+      avgHr: avg, maxHr: max, calories: cal, duration: dur,
+      efficiency: avg ? +(cal / avg).toFixed(2) : 0,
+      intensity:  max ? +((avg / max) * 100).toFixed(1) : 0,
+      workload:   avg * dur
+    };
+  });
+  const latest = computed[computed.length - 1];
 
   let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${p.id} — P${p.plt}S${p.sect} — ${statusBadge(p.status)}</div>`;
   if (p.conditions) html += `<div style="background:#F8514922;border:1px solid #F8514944;border-radius:6px;padding:8px;margin-bottom:12px;font-size:12px;color:var(--red)">Pre-existing: ${p.conditions}</div>`;
@@ -44,16 +67,101 @@ function openPerson(d4) {
     html += med.map(m => `<div style="background:var(--surface2);border-radius:6px;padding:6px 10px;margin-bottom:4px;border:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">${m.date}</span> ${typeBadge(m.type)} ${m.reason} ${m.status ? `<span style="color:var(--muted)">— ${m.status}</span>` : ""}</div>`).join("");
   }
 
-  openModal(p.name, html);
+  // ── Polar metrics section ────────────────────────────
+  if (computed.length) {
+    // Color thresholds: HR ranges follow the existing Polar table convention.
+    // Intensity uses standard zone bands (~70 moderate, 80 hard, 90 max).
+    const avgHrCol = latest.avgHr > 160 ? 'var(--red)' : latest.avgHr > 140 ? 'var(--orange)' : latest.avgHr ? 'var(--green)' : 'var(--muted)';
+    const intCol = latest.intensity >= 90 ? 'var(--red)' : latest.intensity >= 80 ? 'var(--orange)' : latest.intensity >= 70 ? 'var(--yellow)' : latest.intensity ? 'var(--green)' : 'var(--muted)';
 
-  // Chart needs to be created after modal contents are in the DOM
+    html += `<h4 style="font-size:12px;color:var(--muted);margin:16px 0 8px">Polar Metrics & Progression <span style="color:var(--dim);font-weight:400">(${computed.length} session${computed.length === 1 ? '' : 's'}, latest: ${latest.date || '—'})</span></h4>`;
+
+    html += `<div class="stats-row" style="margin-bottom:10px">
+      <div class="stat" title="Latest session average heart rate"><label>Avg HR</label><div class="val" style="color:${avgHrCol};font-size:17px">${latest.avgHr || '—'}</div></div>
+      <div class="stat" title="Latest session peak heart rate"><label>Max HR</label><div class="val" style="color:var(--red);font-size:17px">${latest.maxHr || '—'}</div></div>
+      <div class="stat" title="Calories burned latest session"><label>kcal</label><div class="val" style="color:var(--orange);font-size:17px">${latest.calories || '—'}</div></div>
+      <div class="stat" title="kcal / avg HR — output per heartbeat"><label>Efficiency</label><div class="val" style="color:var(--teal);font-size:17px">${latest.efficiency || '—'}</div></div>
+      <div class="stat" title="avg HR / max HR — how close to ceiling"><label>Intensity</label><div class="val" style="color:${intCol};font-size:17px">${latest.intensity ? latest.intensity + '%' : '—'}</div></div>
+      <div class="stat" title="avg HR × duration — total cardiac load"><label>Workload</label><div class="val" style="color:var(--purple);font-size:17px">${latest.workload || '—'}</div></div>
+    </div>`;
+
+    html += `<div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;line-height:1.55">
+      <div><strong style="color:var(--teal)">Efficiency</strong> = kcal ÷ avg HR. Rising over time means more output per heartbeat — improving conditioning.</div>
+      <div><strong style="color:var(--yellow)">Intensity</strong> = avg HR ÷ max HR (%). How close to their ceiling they worked. &lt;70% easy, 70–80% moderate, 80–90% hard, &gt;90% max effort.</div>
+      <div><strong style="color:var(--pink)">Recovery</strong> = max HR trend across identical sessions. A declining max HR at the same workload suggests improved fitness <em>or</em> fatigue/overtraining — context matters.</div>
+      <div><strong style="color:var(--purple)">Workload</strong> = avg HR × duration (min). Total cardiac load — useful for tracking weekly load and periodisation.</div>
+    </div>`;
+
+    html += `<div class="grid-2" style="gap:10px">
+      <div class="card" style="padding:10px;margin:0"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Heart Rate (avg vs max)</div><canvas id="pm-hr" height="110"></canvas></div>
+      <div class="card" style="padding:10px;margin:0"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Calories (kcal)</div><canvas id="pm-cal" height="110"></canvas></div>
+      <div class="card" style="padding:10px;margin:0"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Efficiency (kcal / avg HR)</div><canvas id="pm-eff" height="110"></canvas></div>
+      <div class="card" style="padding:10px;margin:0"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Intensity (avg / max %)</div><canvas id="pm-int" height="110"></canvas></div>
+      <div class="card" style="padding:10px;margin:0;grid-column:span 2"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Workload (avg HR × min)</div><canvas id="pm-wl" height="90"></canvas></div>
+    </div>`;
+  }
+
+  openModal(p.name, html);
+  // Wide modal: this view is chart-heavy and needs more horizontal room than
+  // the default form-sized modal.
+  document.querySelector(".modal")?.classList.add("wide");
+
+  // Charts need to be created after modal contents are in the DOM.
   setTimeout(() => {
-    const canvas = document.getElementById("person-ippt-chart");
-    if (canvas && ippts.length) {
-      new Chart(canvas, {
+    const ipptCanvas = document.getElementById("person-ippt-chart");
+    if (ipptCanvas && ippts.length) {
+      new Chart(ipptCanvas, {
         type: "line",
         data: { labels: ippts.map(i => "#" + i.attempt), datasets: [{ data: ippts.map(i => +i.score), borderColor: "#D29922", backgroundColor: "#D2992233", fill: true, tension: .3, pointRadius: 5 }] },
         options: { plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, grid: { color: "#30363D" } }, x: { grid: { color: "#30363D" } } } }
+      });
+    }
+
+    if (computed.length) {
+      // Short labels — drop the year so the x-axis stays readable in a small canvas.
+      const labels = computed.map(c => {
+        const parts = (c.date || "").split(" ");
+        return parts.length >= 2 ? parts.slice(0, 2).join(" ") : (c.date || "");
+      });
+      const axisBase = {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { title: (items) => computed[items[0].dataIndex]?.conduct || labels[items[0].dataIndex] } } },
+        scales: {
+          y: { grid: { color: "#30363D" }, ticks: { color: "#8B949E", font: { size: 9 } } },
+          x: { grid: { color: "#30363D" }, ticks: { color: "#8B949E", font: { size: 9 }, maxRotation: 0, autoSkip: true } }
+        }
+      };
+
+      new Chart(document.getElementById("pm-hr"), {
+        type: "line",
+        data: { labels, datasets: [
+          { label: "Avg HR", data: computed.map(c => c.avgHr), borderColor: "#58A6FF", backgroundColor: "#58A6FF22", tension: .3, pointRadius: 3 },
+          { label: "Max HR", data: computed.map(c => c.maxHr), borderColor: "#F85149", backgroundColor: "#F8514922", tension: .3, pointRadius: 3 }
+        ] },
+        options: { ...axisBase, plugins: { ...axisBase.plugins, legend: { display: true, position: "bottom", labels: { color: "#8B949E", font: { size: 9 }, boxWidth: 10 } } } }
+      });
+
+      new Chart(document.getElementById("pm-cal"), {
+        type: "line",
+        data: { labels, datasets: [{ data: computed.map(c => c.calories), borderColor: "#D29922", backgroundColor: "#D2992233", fill: true, tension: .3, pointRadius: 3 }] },
+        options: axisBase
+      });
+
+      new Chart(document.getElementById("pm-eff"), {
+        type: "line",
+        data: { labels, datasets: [{ data: computed.map(c => c.efficiency), borderColor: "#39D2C0", backgroundColor: "#39D2C033", fill: true, tension: .3, pointRadius: 3 }] },
+        options: axisBase
+      });
+
+      new Chart(document.getElementById("pm-int"), {
+        type: "line",
+        data: { labels, datasets: [{ data: computed.map(c => c.intensity), borderColor: "#E3B341", backgroundColor: "#E3B34133", fill: true, tension: .3, pointRadius: 3 }] },
+        options: { ...axisBase, scales: { ...axisBase.scales, y: { min: 0, max: 100, grid: { color: "#30363D" }, ticks: { color: "#8B949E", font: { size: 9 }, callback: v => v + '%' } } } }
+      });
+
+      new Chart(document.getElementById("pm-wl"), {
+        type: "bar",
+        data: { labels, datasets: [{ data: computed.map(c => c.workload), backgroundColor: "#BC8CFF44", borderColor: "#BC8CFF", borderWidth: 1 }] },
+        options: axisBase
       });
     }
   }, 100);
@@ -128,25 +236,29 @@ function openAttendanceForm(id) {
         <div class="form-row">
           ${formField("f-total", "Total Str", "number", "", `required min="0" max="999" step="1"${numVal(e?.total)}`)}
           ${formField("f-part", "Participating", "number", "", `required min="0" max="999" step="1"${numVal(e?.participating)}`)}
+          ${formField("f-lms", "LMS Participation", "number", "", `min="0" max="999" step="1" value="${e?.lms ?? 0}"`)}
           ${formField("f-px", "PX", "number", "", `required min="0" max="999" step="1" value="${e?.px ?? 0}"`)}
           ${formField("f-rsi", "RSI", "number", "", `required min="0" max="999" step="1" value="${e?.rsi ?? 0}"`)}
           ${formField("f-fallout", "Fallout", "number", "", `required min="0" max="999" step="1" value="${e?.fallout ?? 0}"`)}
           ${formField("f-by", "Submitted By", "text", "", `required maxlength="50" value="${escapeAttr(e?.by)}"`)}
         </div>
+        <div class="form-group"><label>Remarks (data inconsistencies, recruit flags)</label><textarea id="f-remarks" maxlength="500" rows="2" style="padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;resize:vertical" placeholder="e.g. JOHN: HR drop sus; 2 Polar rows missing">${escapeAttr(e?.remarks)}</textarea></div>
         <button type="submit" class="btn btn-primary">${e ? "Save" : "Submit"}</button>
       </div>
     </form>`);
 }
 function submitAttendance() {
   const editId = +gv("f-entry-id");
-  const total = +gv("f-total"), part = +gv("f-part"), px = +gv("f-px"), rsi = +gv("f-rsi"), fallout = +gv("f-fallout");
+  const total = +gv("f-total"), part = +gv("f-part"), lms = +gv("f-lms"), px = +gv("f-px"), rsi = +gv("f-rsi"), fallout = +gv("f-fallout");
   if (part > total) { alert("Participating cannot exceed total."); return; }
   if (px + rsi + fallout > total) { alert("PX + RSI + Fallout cannot exceed total."); return; }
+  if (lms > part) { alert("LMS Participation cannot exceed Participating."); return; }
   const entry = {
     id: editId || nextId(),
     date: isoToDisplayDate(gv("f-date")),
     conduct: gv("f-conduct"),
-    total, participating: part, px, rsi, fallout,
+    total, participating: part, lms, px, rsi, fallout,
+    remarks: gv("f-remarks"),
     by: gv("f-by")
   };
   if (editId) {

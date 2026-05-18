@@ -33,7 +33,10 @@
  * SHEET TABS REQUIRED (create with headers in Row 1):
  *   Roster:     id | name | plt | sect | status | conditions | notes
  *   Medical:    id | d4 | date | type | reason | status | duration | excuses | conductMissed
- *   Attendance: id | date | conduct | category | total | participating | px | rsi | fallout | cmdTotal | cmdParticipating | by
+ *   Attendance: id | date | conduct | total | participating | lms | px | rsi | fallout | remarks | by
+ *               (lms = how many of the participating recruits attended LMS for this conduct;
+ *                LMS participation rate = lms / participating, computed client-side)
+ *               (remarks = free-text flags on data inconsistencies / per-recruit notes)
  *   IPPT:       id | d4 | attempt | date | pushups | situps | runTime | score
  *   RouteMarch: id | d4 | rmNum | date | time | avgHr | maxHr | pass
  *   SOC:        id | d4 | socNum | date | time | avgHr | pass

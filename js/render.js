@@ -84,8 +84,8 @@ function renderRoster(el) {
         <button class="btn btn-success" onclick="pushTab('Roster',STATE.roster)">Push to Sheet</button>
       </div>
     </div>
-    ${STATE.roster.length ? `<div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Plt</th><th>Sect</th><th>Status</th><th>Conditions</th><th>RSIs</th></tr></thead><tbody>
-    ${STATE.roster.map(r => `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${r.plt}</td><td>${r.sect}</td><td>${statusBadge(r.status)}</td><td style="text-align:left">${r.conditions || ""}</td><td style="color:${(rsiCount[r.id] || 0) > 1 ? 'var(--red)' : 'var(--muted)'}">${rsiCount[r.id] || 0}</td></tr>`).join("")}
+    ${STATE.roster.length ? `<div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Status</th><th>Conditions</th><th>RSIs</th></tr></thead><tbody>
+    ${STATE.roster.map(r => `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${statusBadge(r.status)}</td><td style="text-align:left">${r.conditions || ""}</td><td style="color:${(rsiCount[r.id] || 0) > 1 ? 'var(--red)' : 'var(--muted)'}">${rsiCount[r.id] || 0}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty-state">No roster loaded. Pull from sheet in Sync &amp; I/O.</div>`}`;
 }
 
@@ -98,8 +98,18 @@ function renderAttendance(el) {
         <button class="btn btn-primary" onclick="openAttendanceForm()">+ Log</button>
       </div>
     </div>
-    ${STATE.attendance.length ? `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Conduct</th><th>Total</th><th>Part.</th><th>PX</th><th>RSI</th><th>Fallout</th><th>Rate</th><th>By</th><th></th></tr></thead><tbody>
-    ${STATE.attendance.map(a => { const r = pct(a.participating, a.total); return `<tr><td>${a.date}</td><td style="text-align:left">${a.conduct}</td><td>${a.total}</td><td>${a.participating}</td><td style="color:${a.px > 0 ? 'var(--orange)' : 'var(--muted)'}">${a.px}</td><td style="color:${a.rsi > 0 ? 'var(--red)' : 'var(--muted)'}">${a.rsi}</td><td style="color:${a.fallout > 0 ? 'var(--red)' : 'var(--muted)'}">${a.fallout}</td><td style="font-weight:700;color:${r >= 95 ? 'var(--green)' : 'var(--orange)'}">${r}%</td><td>${a.by || ""}</td><td><button class="btn btn-icon" onclick="openAttendanceForm(${a.id})" title="Edit">✎</button></td></tr>`; }).join("")}
+    ${STATE.attendance.length ? `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Conduct</th><th>Total</th><th>Part.</th><th>LMS</th><th>PX</th><th>RSI</th><th>Fallout</th><th>Rate</th><th>LMS Rate</th><th style="text-align:left">Remarks</th><th>By</th><th></th></tr></thead><tbody>
+    ${STATE.attendance.map(a => {
+      const r = pct(a.participating, a.total);
+      const lms = +a.lms || 0;
+      // LMS rate = LMS participation / total participating (per user spec).
+      // Falls back to 0 when no one participated to avoid div-by-zero.
+      const lmsRate = pct(lms, a.participating);
+      // Color thresholds: green ≥95% (excellent), orange 70-94% (watch), red <70% (concern).
+      const rateColor = r >= 95 ? 'var(--green)' : r >= 70 ? 'var(--orange)' : 'var(--red)';
+      const lmsRateColor = a.participating ? (lmsRate >= 95 ? 'var(--green)' : lmsRate >= 70 ? 'var(--orange)' : 'var(--red)') : 'var(--muted)';
+      return `<tr><td>${a.date}</td><td style="text-align:left">${a.conduct}</td><td>${a.total}</td><td>${a.participating}</td><td style="color:${lms > 0 ? 'var(--accent)' : 'var(--muted)'}">${lms}</td><td style="color:${a.px > 0 ? 'var(--orange)' : 'var(--muted)'}">${a.px}</td><td style="color:${a.rsi > 0 ? 'var(--red)' : 'var(--muted)'}">${a.rsi}</td><td style="color:${a.fallout > 0 ? 'var(--red)' : 'var(--muted)'}">${a.fallout}</td><td style="font-weight:700;color:${rateColor}">${r}%</td><td style="font-weight:700;color:${lmsRateColor}">${a.participating ? lmsRate + '%' : '—'}</td><td style="text-align:left;color:${a.remarks ? 'var(--yellow)' : 'var(--muted)'};max-width:200px;white-space:normal;font-size:11px">${a.remarks || ''}</td><td>${a.by || ""}</td><td><button class="btn btn-icon" onclick="openAttendanceForm(${a.id})" title="Edit">✎</button></td></tr>`;
+    }).join("")}
     </tbody></table></div>` : `<div class="empty-state">No attendance records yet.</div>`}`;
 }
 
