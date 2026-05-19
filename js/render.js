@@ -37,15 +37,20 @@ function render() {
 }
 
 function renderDashboard(el) {
-  // Empty-state guard: until the user pulls from the sheet, the dashboard
-  // has nothing meaningful to show.
+  // Empty-state guard. The dashboard has nothing meaningful to show until
+  // the roster loads, but the message depends on WHY it's empty: an
+  // authenticated user is mid-pull (or the pull failed); an unauthenticated
+  // visitor needs an invite link. Either way, the user should never see a
+  // "click Pull from Sheet" prompt — that's an auto-handled step now.
   if (!STATE.roster.length) {
+    const body = STATE.authToken
+      ? `<p style="margin-bottom:8px">Loading data from the sheet…</p>
+         <p style="font-size:11px;color:var(--dim)">If this stays empty for more than a few seconds, the sync may have failed. <button class="btn" onclick="doPull()" style="margin-left:6px">Retry now</button></p>`
+      : `<p style="margin-bottom:8px">No invite redeemed on this device yet.</p>
+         <p>Ask your admin for an invite link, then open it on this device — the app will sync automatically.</p>`;
     el.innerHTML = `
       <h2 style="font-size:18px;font-weight:700;margin-bottom:16px">Company Strength Board</h2>
-      <div class="card empty-state">
-        <p style="margin-bottom:12px">No roster data loaded yet.</p>
-        <p>Open <strong>Sync &amp; I/O</strong> in the sidebar to configure your Google Sheet connection and pull the roster.</p>
-      </div>`;
+      <div class="card empty-state">${body}</div>`;
     return;
   }
 
@@ -178,7 +183,7 @@ function renderRoster(el) {
     </div>
     ${scoped.length ? `<div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Status</th><th>BMI</th><th>RSIs</th></tr></thead><tbody>
     ${scoped.map(r => { const bmi = calcBMI(r); return `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${statusBadge(r.status)}</td><td style="font-weight:700;color:${bmiColor(bmi)}">${bmi ?? '—'}</td><td style="color:${(rsiCount[r.id] || 0) > 1 ? 'var(--red)' : 'var(--muted)'}">${rsiCount[r.id] || 0}</td></tr>`; }).join("")}
-    </tbody></table></div>` : `<div class="empty-state">${STATE.roster.length ? `No recruits in ${filterLabel()}.` : "No roster loaded. Pull from sheet in Sync &amp; I/O."}</div>`}`;
+    </tbody></table></div>` : `<div class="empty-state">${STATE.roster.length ? `No recruits in ${filterLabel()}.` : (STATE.authToken ? "Loading roster from sheet…" : "No invite redeemed on this device yet.")}</div>`}`;
 }
 
 function renderAttendance(el) {

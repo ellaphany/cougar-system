@@ -144,10 +144,34 @@ async function tryRedeemInviteFromURL() {
 }
 
 (async function bootstrap() {
-  await tryRedeemInviteFromURL();
+  const justRedeemed = await tryRedeemInviteFromURL();
   loadLocal();
   loadFilter();
   initFilterControls();
-  render();
-  autoSyncOnLaunch();
+
+  // Auto-pull on every launch (and right after invite redemption). For users
+  // with an empty cache — first launch on this device, or right after
+  // redeeming an invite link — block the first render on the pull so they
+  // see real data immediately instead of an empty-state flash. For returning
+  // users with cached data, render cached now and refresh in the background.
+  const cacheEmpty = STATE.roster.length === 0;
+  if (STATE.authToken && (cacheEmpty || justRedeemed)) {
+    setSyncIndicator("● Loading data…", "var(--orange)");
+    try {
+      const data = await API.pullAll();
+      setSyncIndicator(`● Synced ${new Date().toLocaleTimeString()}`, "var(--green)");
+      syncLog(`Auto-sync on launch: pulled from ${data.sheetName}`, "var(--green)");
+    } catch (e) {
+      if (e.name === "AuthError") {
+        setSyncIndicator("● Not authenticated", "var(--red)");
+      } else {
+        setSyncIndicator("● Sync failed", "var(--red)");
+        syncLog(`Auto-sync failed: ${e.message}`, "var(--red)");
+      }
+    }
+    render();
+  } else {
+    render();
+    autoSyncOnLaunch();
+  }
 })();
