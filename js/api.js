@@ -37,7 +37,7 @@ const API = {
   async pullAll() {
     const data = await this.get("readAll");
     if (data.error) throw new Error(data.error);
-    if (data.roster?.length) STATE.roster = data.roster;
+    if (data.roster?.length) STATE.roster = normalizeRoster(data.roster);
     if (data.medical?.length) STATE.medical = data.medical;
     if (data.attendance?.length) STATE.attendance = data.attendance;
     if (data.ippt?.length) STATE.ippt = data.ippt;

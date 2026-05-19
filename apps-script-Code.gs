@@ -31,7 +31,12 @@
  *    open the printed URL on the device that needs access.
  *
  * SHEET TABS REQUIRED (create with headers in Row 1):
- *   Roster:     id | name | plt | sect | status | conditions | notes
+ *   Roster:     4d | name | age | status | conditions | notes | phone | email |
+ *               ration | allergies | msk | highest education level |
+ *               motorcycle license | height | weight
+ *               (the column may be named "4d" or "id" — the frontend mirrors
+ *                whichever is present into r.id at pull time. height in cm,
+ *                weight in kg — BMI is computed client-side.)
  *   Medical:    id | d4 | date | type | reason | status | duration | excuses | conductMissed
  *   Attendance: id | date | conduct | total | participating | lms | px | rsi | fallout | remarks | by
  *               (lms = how many of the participating recruits attended LMS for this conduct;

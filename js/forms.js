@@ -42,6 +42,35 @@ function openPerson(d4) {
   let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${p.id} — ${statusBadge(p.status)}</div>`;
   if (p.conditions) html += `<div style="background:#F8514922;border:1px solid #F8514944;border-radius:6px;padding:8px;margin-bottom:12px;font-size:12px;color:var(--red)">Pre-existing: ${p.conditions}</div>`;
 
+  // ── Profile section ──────────────────────────────────
+  const bmi = calcBMI(p);
+  // 8-digit local numbers display nicer with a space in the middle.
+  const fmtPhone = s => { const d = String(s || "").replace(/\D/g, ""); return d.length === 8 ? d.slice(0, 4) + " " + d.slice(4) : (s || ""); };
+  const edu = p["highest education level"] || "";
+  const moto = p["motorcycle license"] || "";
+  const fact = (label, val, color) => `<span style="color:var(--muted)">${label}:</span> <strong style="color:${color || 'var(--text)'}">${val || '—'}</strong>`;
+
+  html += `<div class="card" style="margin-bottom:12px;padding:14px"><h3 style="margin-bottom:10px">Profile</h3>
+    <div class="stats-row" style="margin-bottom:10px">
+      <div class="stat"><label>Age</label><div class="val">${p.age || '—'}</div></div>
+      <div class="stat"><label>Height</label><div class="val">${p.height ? p.height + '<span style="font-size:11px;color:var(--muted)"> cm</span>' : '—'}</div></div>
+      <div class="stat"><label>Weight</label><div class="val">${p.weight ? p.weight + '<span style="font-size:11px;color:var(--muted)"> kg</span>' : '—'}</div></div>
+      <div class="stat"><label>BMI</label><div class="val" style="color:${bmiColor(bmi)}">${bmi ?? '—'}</div></div>
+    </div>
+    ${p.phone || p.email ? `<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-bottom:8px">
+      ${p.phone ? `<span>📞 <a href="tel:${escapeAttr(String(p.phone).replace(/\D/g, ""))}" style="color:var(--accent);text-decoration:none">${fmtPhone(p.phone)}</a></span>` : ""}
+      ${p.email ? `<span>✉ <a href="mailto:${escapeAttr(p.email)}" style="color:var(--accent);text-decoration:none;word-break:break-all">${p.email}</a></span>` : ""}
+    </div>` : ""}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">
+      ${fact("Ration", p.ration)}
+      ${fact("Edu", edu)}
+      ${fact("Motorcycle", moto || "No")}
+    </div>
+  </div>`;
+
+  if (p.allergies) html += `<div style="background:#E3B34122;border:1px solid #E3B34144;border-radius:6px;padding:8px;margin-bottom:8px;font-size:12px;color:var(--yellow)"><strong>Allergies:</strong> ${p.allergies}</div>`;
+  if (p.msk) html += `<div style="background:#F8514922;border:1px solid #F8514944;border-radius:6px;padding:8px;margin-bottom:12px;font-size:12px;color:var(--red)"><strong>MSK history:</strong> ${p.msk}</div>`;
+
   html += `<div class="stats-row"><div class="stat"><label>RSIs</label><div class="val" style="color:${med.length > 1 ? 'var(--red)' : 'var(--muted)'}">${med.length}</div></div>`;
   html += `<div class="stat"><label>IPPT Best</label><div class="val" style="color:var(--orange)">${ippts.length ? Math.max(...ippts.map(i => +i.score)) : "—"}</div></div>`;
   html += `<div class="stat"><label>RMs</label><div class="val" style="color:var(--teal)">${rms.length}</div></div>`;

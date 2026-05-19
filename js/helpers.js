@@ -79,6 +79,22 @@ const typeBadge = t => badge(t, t === "RSI" ? "orange" : t === "Injury" ? "red" 
 const awardBadge = s => { const a = getAward(s); const c = { Gold: "yellow", Silver: "accent", Pass: "green", Fail: "red", "N/A": "accent" }; return badge(a, c[a] || "accent"); };
 const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 
+// BMI = kg / m². Height is stored in cm in the roster sheet.
+// Categories follow the standard WHO bands. Returns null when either field
+// is missing so callers can render an em-dash instead of NaN.
+function calcBMI(r) {
+  const h = +r.height, w = +r.weight;
+  if (!h || !w) return null;
+  return +(w / Math.pow(h / 100, 2)).toFixed(1);
+}
+function bmiColor(bmi) {
+  if (bmi == null) return 'var(--muted)';
+  if (bmi < 18.5) return 'var(--accent)';      // underweight
+  if (bmi < 25)   return 'var(--green)';        // normal
+  if (bmi < 30)   return 'var(--orange)';       // overweight
+  return 'var(--red)';                          // obese
+}
+
 function exportCSV(data, filename) {
   const csv = Papa.unparse(data);
   const blob = new Blob([csv], { type: "text/csv" });

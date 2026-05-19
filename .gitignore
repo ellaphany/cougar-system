@@ -1,0 +1,45 @@
+# ── Personal notes & scratch files ─────────────────
+# Loose plain-text (todos, chat exports, snippets) — keep these local.
+*.txt
+*.md.bak
+
+# ── Secrets & local config ─────────────────────────
+# Anything that could carry a real API key or per-machine config.
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
+config.local.*
+
+# Claude Code per-machine settings (project settings.json stays tracked).
+.claude/settings.local.json
+
+# ── Local data exports / backups ───────────────────
+# exportJSON() / exportCSV() downloads land here if you save into the repo.
+cougar_backup*.json
+*.bak
+
+# ── OS metadata ────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+
+# ── Editor / IDE ───────────────────────────────────
+.idea/
+*.swp
+*.swo
+*~
+.vscode/settings.local.json
+
+# ── Node ecosystem (in case you add npm later) ─────
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

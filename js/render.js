@@ -67,6 +67,7 @@ function renderDashboard(el) {
       <div class="card"><h3>Status Breakdown</h3><canvas id="chart-status" height="200"></canvas></div>
       <div class="card"><h3>Participation Trend</h3><canvas id="chart-participation" height="200"></canvas></div>
     </div>
+    ${renderDashProfileCards(scoped)}
     <h3 style="font-size:13px;color:var(--muted);margin-bottom:8px">Non-Active Personnel</h3>
     <div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Status</th><th>Conditions</th><th>Notes</th></tr></thead><tbody>
     ${scoped.filter(r => r.status !== "Active").map(r => `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${statusBadge(r.status)}</td><td style="text-align:left">${r.conditions || ""}</td><td style="text-align:left">${r.notes || ""}</td></tr>`).join("")}
@@ -87,6 +88,49 @@ function renderDashboard(el) {
   });
 }
 
+// Dashboard sub-widgets — kept separate from renderDashboard to keep the main
+// function readable. Both respect the active scope filter via the `scoped`
+// roster passed in.
+function renderDashProfileCards(scoped) {
+  // Ration: count distinct values. Unknowns get grouped under "Unspecified"
+  // so they show up but don't disappear silently.
+  const rationCounts = {};
+  scoped.forEach(r => { const k = (r.ration || "").trim() || "Unspecified"; rationCounts[k] = (rationCounts[k] || 0) + 1; });
+  const rationRows = Object.entries(rationCounts).sort((a, b) => b[1] - a[1]);
+  const rationColor = k => k === "Muslim" ? "var(--green)" : k === "Non-Muslim" ? "var(--accent)" : "var(--muted)";
+
+  // Allergies: each recruit's `allergies` is free text — split on comma so a
+  // single "Peanuts, Dairy" entry counts toward two distinct allergens.
+  const allergenCounts = {};
+  const allergic = [];
+  scoped.forEach(r => {
+    const raw = (r.allergies || "").trim();
+    if (!raw) return;
+    allergic.push(r);
+    raw.split(/[,;]/).map(s => s.trim()).filter(Boolean).forEach(a => {
+      const key = a.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+      allergenCounts[key] = (allergenCounts[key] || 0) + 1;
+    });
+  });
+  const allergenRows = Object.entries(allergenCounts).sort((a, b) => b[1] - a[1]);
+
+  return `<div class="grid-2">
+    <div class="card"><h3>Ration Breakdown</h3>
+      ${rationRows.length ? `<div style="display:flex;flex-direction:column;gap:6px">
+        ${rationRows.map(([k, n]) => `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px"><span style="color:${rationColor(k)};font-weight:600">${k}</span><span class="mono" style="color:var(--muted)">${n} (${pct(n, scoped.length)}%)</span></div>`).join("")}
+      </div>` : `<div style="color:var(--muted);font-size:12px">No ration data</div>`}
+    </div>
+    <div class="card"><h3>Allergies <span style="color:var(--muted);font-weight:400;font-size:11px">(${allergic.length} recruit${allergic.length === 1 ? '' : 's'})</span></h3>
+      ${allergic.length ? `
+        ${allergenRows.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${allergenRows.map(([a, n]) => `<span class="badge badge-yellow">${a} · ${n}</span>`).join("")}</div>` : ""}
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto">
+          ${allergic.map(r => `<div onclick="openPerson('${r.id}')" style="cursor:pointer;font-size:11px;padding:4px 6px;border-radius:4px;background:var(--surface2);display:flex;justify-content:space-between;gap:8px"><span><span class="mono" style="color:var(--accent);font-weight:700">${r.id}</span> ${r.name}</span><span style="color:var(--yellow);text-align:right">${r.allergies}</span></div>`).join("")}
+        </div>
+      ` : `<div style="color:var(--muted);font-size:12px">No recruits with allergies recorded</div>`}
+    </div>
+  </div>`;
+}
+
 function renderRoster(el) {
   const rsiCount = {};
   STATE.medical.forEach(m => { rsiCount[m.d4] = (rsiCount[m.d4] || 0) + 1; });
@@ -102,8 +146,8 @@ function renderRoster(el) {
         <button class="btn btn-success" onclick="pushTab('Roster',STATE.roster)">Push to Sheet</button>
       </div>
     </div>
-    ${scoped.length ? `<div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Status</th><th>Conditions</th><th>RSIs</th></tr></thead><tbody>
-    ${scoped.map(r => `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${statusBadge(r.status)}</td><td style="text-align:left">${r.conditions || ""}</td><td style="color:${(rsiCount[r.id] || 0) > 1 ? 'var(--red)' : 'var(--muted)'}">${rsiCount[r.id] || 0}</td></tr>`).join("")}
+    ${scoped.length ? `<div class="table-wrap"><table><thead><tr><th>4D</th><th>Name</th><th>Status</th><th>BMI</th><th>Conditions</th><th>RSIs</th></tr></thead><tbody>
+    ${scoped.map(r => { const bmi = calcBMI(r); return `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent)">${r.id}</td><td style="text-align:left">${r.name}</td><td>${statusBadge(r.status)}</td><td style="font-weight:700;color:${bmiColor(bmi)}">${bmi ?? '—'}</td><td style="text-align:left">${r.conditions || ""}</td><td style="color:${(rsiCount[r.id] || 0) > 1 ? 'var(--red)' : 'var(--muted)'}">${rsiCount[r.id] || 0}</td></tr>`; }).join("")}
     </tbody></table></div>` : `<div class="empty-state">${STATE.roster.length ? `No recruits in ${filterLabel()}.` : "No roster loaded. Pull from sheet in Sync &amp; I/O."}</div>`}`;
 }
 

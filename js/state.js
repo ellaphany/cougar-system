@@ -25,6 +25,13 @@ const STATE = {
   charts: {}
 };
 
+// Sheet column is "4d" (preserved verbatim by Apps Script readTab), but the
+// rest of the codebase has always used r.id. Mirror the value into r.id at
+// every entry point so callers don't have to think about it. Idempotent.
+function normalizeRoster(roster) {
+  return (roster || []).map(r => ({ ...r, id: r.id || r["4d"] || r["4D"] || "" }));
+}
+
 function saveLocal() {
   const d = {
     roster: STATE.roster, medical: STATE.medical, attendance: STATE.attendance,
@@ -41,7 +48,7 @@ function loadLocal() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
-    STATE.roster = d.roster || [];
+    STATE.roster = normalizeRoster(d.roster);
     STATE.medical = d.medical || [];
     STATE.attendance = d.attendance || [];
     STATE.ippt = d.ippt || [];
