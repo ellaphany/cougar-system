@@ -1,6 +1,10 @@
 :root{--bg:#0D1117;--surface:#161B22;--surface2:#21262D;--border:#30363D;--text:#E6EDF3;--muted:#8B949E;--dim:#484F58;--accent:#58A6FF;--accentDim:#1F6FEB;--green:#3FB950;--red:#F85149;--orange:#D29922;--yellow:#E3B341;--purple:#BC8CFF;--teal:#39D2C0;--pink:#F778BA}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);font-size:13px;display:flex;height:100vh;overflow:hidden}
+/* `dvh` adjusts as iOS Safari's address bar grows/shrinks — prevents the
+   page from sitting partially behind the toolbar on first load. position:fixed
+   inset:0 locks the body so nothing can scroll outside #content. overflow-x
+   hidden is a safety net against rogue wide elements. */
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);font-size:13px;display:flex;height:100vh;height:100dvh;overflow:hidden;overflow-x:hidden;position:fixed;inset:0}
 .mono{font-family:'JetBrains Mono',monospace}
 
 /* Sidebar */
@@ -155,4 +159,24 @@ tr:hover{background:var(--surface2)}
 
   /* iOS Safari select arrow override — make sure selects look tappable */
   select.topbar-select,.form-group select{-webkit-appearance:none;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:28px}
+
+  /* Hard cap any inline min-width on selects/inputs so a wide dropdown (the
+     Conduct-Detail filter is 260px on desktop) can't force the page wider
+     than the viewport on phones. */
+  .topbar-select,select,input{max-width:100%;min-width:0!important}
+
+  /* Charts must not overflow their grid cell. Chart.js sizes the canvas
+     based on container width — explicitly clamp it. */
+  .chart-box,.chart-box canvas{max-width:100%}
+
+  /* Modal body should never scroll horizontally; long text wraps. */
+  .modal,.modal *{max-width:100%}
+  .modal table{table-layout:auto;word-break:break-word}
+
+  /* Final safety net: anything that escapes the above just clips, instead
+     of forcing the page to scroll horizontally. Tables inside .table-wrap
+     keep their explicit overflow-x:auto and so still scroll horizontally
+     when needed (that's the one place where it's intentional). */
+  #content,.card{overflow-x:hidden}
+  .table-wrap{overflow-x:auto}  /* re-assert — explicit > inherited */
 }

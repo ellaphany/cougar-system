@@ -6,6 +6,10 @@ function render() {
   Object.values(STATE.charts).forEach(c => c.destroy());
   STATE.charts = {};
 
+  // Reset scroll on tab switches so a long previous tab doesn't leave the
+  // next one looking pre-scrolled (and on mobile hiding the topbar).
+  document.getElementById("content")?.scrollTo(0, 0);
+
   // Keep filter dropdown options in sync with the current roster — cheap to
   // rebuild a few <option>s and means we don't have to remember to call this
   // from every site that mutates STATE.roster (pull, import, edit).
