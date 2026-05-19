@@ -70,10 +70,14 @@ function openPerson(d4) {
   if (p.allergies) html += `<div style="background:#E3B34122;border:1px solid #E3B34144;border-radius:6px;padding:8px;margin-bottom:8px;font-size:12px;color:var(--yellow)"><strong>Allergies:</strong> ${p.allergies}</div>`;
   if (p.msk) html += `<div style="background:#F8514922;border:1px solid #F8514944;border-radius:6px;padding:8px;margin-bottom:12px;font-size:12px;color:var(--red)"><strong>MSK history:</strong> ${p.msk}</div>`;
 
-  html += `<div class="stats-row"><div class="stat"><label>RSIs</label><div class="val" style="color:${med.length > 1 ? 'var(--red)' : 'var(--muted)'}">${med.length}</div></div>`;
+  // RSIs stat is clickable when there are records — opens an inline patterns
+  // panel below the stats strip with day-of-week, status mix, timeline, reasons.
+  const rsClickable = med.length > 0;
+  html += `<div class="stats-row"><div class="stat" ${rsClickable ? `onclick="toggleReportSickPatterns('${d4}')" style="cursor:pointer" title="Click to see patterns"` : ""}><label>RSIs ${rsClickable ? '<span style="color:var(--dim);font-size:9px">▾ patterns</span>' : ''}</label><div class="val" style="color:${med.length > 1 ? 'var(--red)' : 'var(--muted)'}">${med.length}</div></div>`;
   html += `<div class="stat"><label>IPPT Best</label><div class="val" style="color:var(--orange)">${ippts.length ? Math.max(...ippts.map(i => +i.score)) : "—"}</div></div>`;
   html += `<div class="stat"><label>RMs</label><div class="val" style="color:var(--teal)">${rms.length}</div></div>`;
   html += `<div class="stat"><label>SOCs</label><div class="val" style="color:var(--purple)">${socs.length}</div></div></div>`;
+  html += `<div id="rs-patterns" style="display:none"></div>`;
 
   // Conduct Participation History — sits above IPPT/RM/SOC so a PC checking
   // "why has this recruit been missing conducts" sees the answer first thing.
@@ -237,6 +241,154 @@ function openPerson(d4) {
       });
     }
   }, 100);
+}
+
+// Inline expand under the RSIs stat — shows day-of-week, status mix, timeline,
+// and top reasons. A PC checking "is this guy gaming the system?" gets the
+// answer at a glance: Mondays + always-NIL → suspicious; mixed days + LD/MC
+// with real diagnoses → genuine pattern.
+function toggleReportSickPatterns(d4) {
+  const panel = document.getElementById("rs-patterns");
+  if (!panel) return;
+  if (panel.style.display !== "none") { panel.style.display = "none"; panel.innerHTML = ""; return; }
+
+  const med = STATE.medical.filter(m => m.d4 === d4);
+  if (!med.length) return;
+
+  // Day-of-week distribution. The "report sick" date is what matters here —
+  // not the MC start date, which can shift forward by a day.
+  const dowNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dow = [0, 0, 0, 0, 0, 0, 0];
+  med.forEach(m => {
+    const iso = displayDateToISO(m.date);
+    if (!iso) return;
+    dow[new Date(iso).getDay()]++;
+  });
+  const maxDow = Math.max(...dow, 1);
+
+  // Status mix — reveals "always NIL" (malingering signal) vs real MC/LD pattern.
+  const statusCounts = {};
+  med.forEach(m => { const k = m.status || "—"; statusCounts[k] = (statusCounts[k] || 0) + 1; });
+  const statusOrder = ["MC", "Warded", "LD", "RMJ", "Excuse Heavy Load", "Excuse Kneeling", "Excuse Squatting", "Excuse Uniform", "Excuse RMJ", "Pending", "NIL"];
+  const statusRows = statusOrder.filter(s => statusCounts[s]).map(s => [s, statusCounts[s]]);
+  const nilPct = med.length ? Math.round((statusCounts["NIL"] || 0) / med.length * 100) : 0;
+
+  // Avg gap between report-sick events — accelerating frequency is a signal.
+  const isoDates = med.map(m => displayDateToISO(m.date)).filter(Boolean).sort();
+  const gaps = [];
+  for (let i = 1; i < isoDates.length; i++) {
+    gaps.push(Math.round((new Date(isoDates[i]) - new Date(isoDates[i - 1])) / 86400000));
+  }
+  const avgGap = gaps.length ? Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length) : null;
+  const lastGap = gaps.length ? gaps[gaps.length - 1] : null;
+
+  // Top reasons (case-insensitive grouping; show original casing of first occurrence).
+  const reasonMap = {};
+  med.forEach(m => {
+    const key = (m.reason || "").trim().toLowerCase();
+    if (!key) return;
+    if (!reasonMap[key]) reasonMap[key] = { display: (m.reason || "").trim(), count: 0 };
+    reasonMap[key].count++;
+  });
+  const topReasons = Object.values(reasonMap).sort((a, b) => b.count - a.count).slice(0, 6);
+
+  // Timeline: each report-sick as a dot on a date axis, colored by status.
+  const tlPoints = med
+    .map(m => ({ iso: displayDateToISO(m.date), status: m.status || "—", reason: m.reason || "" }))
+    .filter(p => p.iso)
+    .sort((a, b) => a.iso < b.iso ? -1 : 1);
+
+  const statusColor = {
+    "MC": "#F85149", "Warded": "#F85149",
+    "LD": "#D29922", "RMJ": "#D29922",
+    "Excuse Heavy Load": "#E3B341", "Excuse Kneeling": "#E3B341", "Excuse Squatting": "#E3B341", "Excuse Uniform": "#E3B341", "Excuse RMJ": "#E3B341",
+    "Pending": "#8B949E", "NIL": "#39D353", "—": "#6E7681"
+  };
+
+  const dowBars = dow.map((c, i) => {
+    const h = Math.round((c / maxDow) * 80);
+    // Flag Mon (1) prominently if it's the modal day and there are ≥3 entries.
+    const isMonPeak = i === 1 && c === maxDow && c >= 3;
+    const color = isMonPeak ? "var(--red)" : c === maxDow && c > 0 ? "var(--orange)" : "var(--accent)";
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+      <div style="font-size:10px;color:var(--muted);height:12px">${c || ""}</div>
+      <div style="width:100%;background:${color};height:${h}px;min-height:${c ? 2 : 0}px;border-radius:3px 3px 0 0;opacity:${c ? 1 : .15}"></div>
+      <div style="font-size:10px;color:var(--muted)">${dowNames[i]}</div>
+    </div>`;
+  }).join("");
+
+  const statusBars = statusRows.map(([s, n]) => {
+    const pct = Math.round((n / med.length) * 100);
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:11px">
+      <div style="flex:0 0 110px">${medTagBadge(s)}</div>
+      <div style="flex:1;background:var(--surface2);border-radius:3px;height:14px;position:relative;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${statusColor[s] || "var(--accent)"}"></div>
+      </div>
+      <div class="mono" style="flex:0 0 60px;text-align:right;color:var(--muted)">${n} · ${pct}%</div>
+    </div>`;
+  }).join("");
+
+  // Detect concerning patterns and surface them as text callouts.
+  const flags = [];
+  if (nilPct >= 50 && med.length >= 3) flags.push(`<span style="color:var(--red)">⚠ ${nilPct}% NIL outcomes</span> — MO frequently finds nothing wrong`);
+  if (dow[1] === maxDow && dow[1] >= 3) flags.push(`<span style="color:var(--orange)">⚠ Monday-heavy</span> — ${dow[1]} of ${med.length} on Mondays`);
+  if (lastGap !== null && avgGap !== null && lastGap < avgGap / 2 && gaps.length >= 2) flags.push(`<span style="color:var(--orange)">⚠ Accelerating</span> — last gap ${lastGap}d vs avg ${avgGap}d`);
+
+  panel.innerHTML = `
+    <div class="card" style="margin:8px 0 16px;padding:14px;border-left:3px solid var(--accent)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:13px">Report Sick Patterns <span style="color:var(--dim);font-weight:400;font-size:11px">(${med.length} events${avgGap !== null ? ` · avg ${avgGap}d apart` : ""})</span></h3>
+        <button class="btn btn-icon" onclick="toggleReportSickPatterns('${d4}')" title="Close">✕</button>
+      </div>
+      ${flags.length ? `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:12px;font-size:11px;line-height:1.7">${flags.join("<br>")}</div>` : ""}
+      <div class="grid-2" style="gap:14px;align-items:start">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Day of Week</div>
+          <div style="display:flex;gap:4px;align-items:flex-end;height:110px">${dowBars}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Status Mix</div>
+          <div style="display:flex;flex-direction:column;gap:5px">${statusBars}</div>
+        </div>
+      </div>
+      ${tlPoints.length ? `<div style="margin-top:14px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Timeline <span style="color:var(--dim);text-transform:none;letter-spacing:0">(first → last, color = status)</span></div>
+        <div class="chart-box" style="height:80px"><canvas id="rs-timeline"></canvas></div>
+      </div>` : ""}
+      ${topReasons.length ? `<div style="margin-top:14px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Top Reasons</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${topReasons.map(r => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px"><span style="color:var(--text)">${r.display}</span> <span class="mono" style="color:var(--accent);font-weight:700;margin-left:4px">×${r.count}</span></div>`).join("")}
+        </div>
+      </div>` : ""}
+    </div>
+  `;
+  panel.style.display = "";
+
+  setTimeout(() => {
+    const tlCanvas = document.getElementById("rs-timeline");
+    if (!tlCanvas || !tlPoints.length) return;
+    new Chart(tlCanvas, {
+      type: "scatter",
+      data: { datasets: [{
+        data: tlPoints.map(p => ({ x: new Date(p.iso).getTime(), y: 0, _status: p.status, _reason: p.reason, _iso: p.iso })),
+        backgroundColor: tlPoints.map(p => statusColor[p.status] || "#6E7681"),
+        borderColor: tlPoints.map(p => statusColor[p.status] || "#6E7681"),
+        pointRadius: 7, pointHoverRadius: 9
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => { const p = c.raw; const d = new Date(p.x); return `${d.toLocaleDateString()} — ${p._status}${p._reason ? ": " + p._reason : ""}`; } } }
+        },
+        scales: {
+          y: { display: false, min: -1, max: 1 },
+          x: { type: "linear", grid: { color: "#30363D" }, ticks: { color: "#8B949E", font: { size: 9 }, callback: v => { const d = new Date(v); return `${d.getDate()}/${d.getMonth() + 1}`; } } }
+        }
+      }
+    });
+  }, 50);
 }
 
 // ─── FORM OPENERS + SUBMITTERS ─────────────────────────

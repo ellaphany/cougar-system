@@ -7,10 +7,14 @@
  * The script enforces token-based auth for all data operations. Two token types
  * live in PropertiesService:
  *
- *   invite:<token>  →  {used, createdAt, usedAt?, issuedAuthToken?}
- *     • Single-use. You (the admin) mint these via generateInvite() from the
- *       editor and send the resulting URL to a user. They click once → the
- *       token is consumed → the user's device gets an auth token.
+ *   invite:<token>  →  Two shapes:
+ *     SINGLE-USE: {used, createdAt, usedAt?, issuedAuthToken?}
+ *       • Mint via generateInvite(). Consumed on first click.
+ *     BULK (multi-use): {maxUses, usedCount, redemptions[], createdAt, expiresAt?}
+ *       • Mint via generateBulkInvite(maxUses, expiresInDays). Share ONE link
+ *         with a whole team — each click issues a separate per-device auth
+ *         token. Self-disables when cap or expiry is hit. Audit with
+ *         bulkInviteStatus(token); kill with revokeInvite(token).
  *
  *   auth:<token>    →  {issuedAt, fromInvite}
  *     • Long-lived. Stored in the user's browser localStorage. Sent with every
@@ -151,10 +155,29 @@ function redeemInvite(inviteToken) {
   if (!raw) return { error: "Invalid invite link" };
 
   var invite = JSON.parse(raw);
+  var now = new Date().toISOString();
+  var nowMs = Date.now();
+
+  // Multi-use invite: tracked via maxUses + usedCount. The same link can be
+  // shared with a whole team; each device gets its own auth token, and the
+  // link self-expires once the cap or expiry date is hit. Single-use invites
+  // (no maxUses field) keep the legacy behavior below.
+  if (typeof invite.maxUses === "number") {
+    if (invite.expiresAt && nowMs > Date.parse(invite.expiresAt)) return { error: "This invite link has expired" };
+    if ((invite.usedCount || 0) >= invite.maxUses) return { error: "This invite link is full — ask your admin for a new one" };
+
+    var authTokenM = Utilities.getUuid();
+    invite.usedCount = (invite.usedCount || 0) + 1;
+    invite.redemptions = invite.redemptions || [];
+    invite.redemptions.push({ at: now, authToken: authTokenM });
+    props.setProperty(key, JSON.stringify(invite));
+    props.setProperty("auth:" + authTokenM, JSON.stringify({ issuedAt: now, fromInvite: inviteToken }));
+    return { ok: true, authToken: authTokenM };
+  }
+
   if (invite.used) return { error: "This invite has already been used" };
 
   var authToken = Utilities.getUuid();
-  var now = new Date().toISOString();
 
   invite.used = true;
   invite.usedAt = now;
@@ -179,6 +202,60 @@ function generateInvite() {
   Logger.log(link);
   Logger.log("───────────────────────────────────────────");
   return link;
+}
+
+// Multi-use invite for bulk onboarding (e.g. dropping one link in a WhatsApp
+// group of 30 PCs). Each click issues a separate per-device auth token, so
+// revoking one user later does not affect the rest. The link self-disables
+// once `maxUses` is hit or `expiresInDays` passes.
+//
+// Usage from the editor: generateBulkInvite(30, 7)
+//   maxUses        — cap on redemptions (default 30)
+//   expiresInDays  — link auto-expires after N days (default 7; pass 0 to disable)
+function generateBulkInvite(maxUses, expiresInDays) {
+  var max = (typeof maxUses === "number" && maxUses > 0) ? Math.floor(maxUses) : 30;
+  var days = (typeof expiresInDays === "number" && expiresInDays >= 0) ? expiresInDays : 7;
+  var token = Utilities.getUuid();
+  var now = new Date();
+  var record = {
+    maxUses: max,
+    usedCount: 0,
+    redemptions: [],
+    createdAt: now.toISOString()
+  };
+  if (days > 0) record.expiresAt = new Date(now.getTime() + days * 86400000).toISOString();
+
+  PropertiesService.getScriptProperties().setProperty("invite:" + token, JSON.stringify(record));
+  var link = FRONTEND_BASE_URL + "?token=" + token;
+  Logger.log("═══════════════════════════════════════════");
+  Logger.log("NEW BULK INVITE LINK");
+  Logger.log("  uses: 0 / " + max + (days > 0 ? "    expires: " + record.expiresAt : "    (no expiry)"));
+  Logger.log("  share this ONE link with your group:");
+  Logger.log("  " + link);
+  Logger.log("═══════════════════════════════════════════");
+  Logger.log("To audit redemptions later:  bulkInviteStatus(\"" + token + "\")");
+  Logger.log("To kill the link:            revokeInvite(\"" + token + "\")");
+  return link;
+}
+
+// Print redemption count + timestamps for a bulk invite. Auth tokens are not
+// printed to keep the log safe to screenshot.
+function bulkInviteStatus(token) {
+  var raw = PropertiesService.getScriptProperties().getProperty("invite:" + token);
+  if (!raw) { Logger.log("No invite with token: " + token); return; }
+  var inv = JSON.parse(raw);
+  Logger.log("Invite " + token);
+  Logger.log("  type:    " + (typeof inv.maxUses === "number" ? "bulk" : "single-use"));
+  if (typeof inv.maxUses === "number") {
+    Logger.log("  uses:    " + (inv.usedCount || 0) + " / " + inv.maxUses);
+    Logger.log("  expires: " + (inv.expiresAt || "(no expiry)"));
+    Logger.log("  redemptions:");
+    (inv.redemptions || []).forEach(function (r, i) {
+      Logger.log("    " + (i + 1) + ". " + r.at);
+    });
+  } else {
+    Logger.log("  used:    " + !!inv.used + (inv.usedAt ? " at " + inv.usedAt : ""));
+  }
 }
 
 function listInvites() {
