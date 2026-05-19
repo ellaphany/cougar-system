@@ -25,41 +25,6 @@ function closeMobileSidebar() {
 document.getElementById("mobile-nav-toggle")?.addEventListener("click", openMobileSidebar);
 document.getElementById("sidebar-backdrop")?.addEventListener("click", closeMobileSidebar);
 
-// ── Auto-hide topbar on scroll-down, restore on scroll-up ────────────
-// Transform-only: GPU-accelerated, no layout reflow, smooth on iOS.
-// Class toggle (not inline style) so the CSS transition handles motion.
-(function setupTopbarAutoHide() {
-  const content = document.getElementById("content");
-  const topbar = document.getElementById("topbar");
-  if (!content || !topbar) return;
-  // Clear any leftover inline margin-top from previous version of this code
-  // so the new transform-based hide isn't fighting an old layout-shift hide.
-  topbar.style.marginTop = "";
-
-  let lastY = 0;
-  let ticking = false;
-  const SCROLL_THRESHOLD = 6;    // ignore micro-scrolls
-  const SHOW_BELOW_PX   = 60;    // always show topbar near the very top
-
-  content.addEventListener("scroll", () => {
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => {
-      const y = content.scrollTop;
-      const delta = y - lastY;
-      if (Math.abs(delta) > SCROLL_THRESHOLD) {
-        if (delta > 0 && y > SHOW_BELOW_PX) {
-          topbar.classList.add("topbar-hidden");
-        } else if (delta < 0) {
-          topbar.classList.remove("topbar-hidden");
-        }
-        lastY = y;
-      }
-      ticking = false;
-    });
-  });
-})();
-
 document.getElementById("search-input").addEventListener("input", e => {
   const q = e.target.value.toLowerCase();
   const res = document.getElementById("search-results");
