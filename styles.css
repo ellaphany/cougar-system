@@ -19,7 +19,11 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 
 /* Main */
 #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#topbar{padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:center;position:sticky;top:0;z-index:50;flex-shrink:0;transition:margin-top .1s linear}
+#topbar{padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:center;position:sticky;top:0;z-index:50;flex-shrink:0;transition:transform .15s linear;will-change:transform}
+/* Transform hide: GPU-accelerated, no layout reflow, so scrolling stays
+   smooth. Leaves a dark strip where the topbar was — that's the trade-off
+   for stable scroll performance. */
+#topbar.topbar-hidden{transform:translateY(-100%)}
 #topbar input{flex:1;max-width:350px;padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-size:12px;outline:none}
 #topbar-filters{margin-left:auto;display:flex;gap:6px;align-items:center}
 #topbar-filters .filter-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600}
@@ -91,6 +95,9 @@ tr:hover{background:var(--surface2)}
 /* Hamburger button — only shown on mobile via the media query below. */
 #mobile-nav-toggle{display:none;background:none;border:none;color:var(--text);font-size:22px;cursor:pointer;padding:4px 10px;line-height:1}
 #sidebar-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:150}
+/* Mobile filter toggle — desktop hides it, mobile shows it as the entry
+   point to the scope filter popover. */
+#mobile-filter-toggle{display:none}
 
 /* Empty state */
 .empty-state{padding:40px;text-align:center;color:var(--muted)}
@@ -116,14 +123,26 @@ tr:hover{background:var(--surface2)}
   /* Hamburger visible, backdrop ready to be revealed */
   #mobile-nav-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:36px;min-height:36px}
 
-  /* Topbar reflows into two rows: search row + filters row */
-  #topbar{flex-wrap:wrap;padding:8px 12px;gap:8px}
-  #topbar .topbar-search-icon{display:none}  /* save space; the input has its own placeholder */
-  #topbar input{flex:1 1 100%;max-width:none;font-size:14px;padding:10px 12px}
-  #search-results{order:3;flex-basis:100%}
-  #topbar-filters{margin-left:0;width:100%;order:2}
-  #topbar-filters .filter-label{display:none}  /* implicit from context */
-  .topbar-select{flex:1;min-width:0;padding:10px 8px;font-size:14px}
+  /* Topbar is now a single short row: hamburger | search | filter toggle.
+     The scope-filter selects live in a popover panel below the topbar
+     instead of taking up a permanent second row. */
+  #topbar{flex-wrap:nowrap;padding:8px 12px;gap:8px}
+  #topbar .topbar-search-icon{display:none}
+  #topbar input{flex:1 1 auto;min-width:0;max-width:none;font-size:14px;padding:10px 12px}
+  #search-results{order:99;flex-basis:100%;margin-top:4px}  /* drops below row if any */
+
+  /* The "Scope" toggle — shows current filter state ("All", "P1", "P1S2"). */
+  #mobile-filter-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:54px;min-height:36px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.5px;flex-shrink:0}
+  #mobile-filter-toggle.active{color:var(--accent);border-color:var(--accent);background:#58A6FF11}
+
+  /* Filter panel: dropdown anchored to the bottom edge of the topbar.
+     Hidden by default; .open reveals it. Topbar is the positioning context
+     thanks to position:sticky (a positioned ancestor). */
+  #topbar-filters{position:absolute;top:100%;left:0;right:0;margin:0;padding:14px 14px 16px;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 6px 18px rgba(0,0,0,.45);display:none;flex-direction:column;gap:10px;z-index:49}
+  #topbar-filters.open{display:flex}
+  #topbar-filters .filter-label{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:-4px}
+  #topbar-filters .topbar-select{width:100%;padding:12px;font-size:14px}
+  #filter-clear{align-self:flex-end;min-width:60px}
 
   /* Content area */
   #content{padding:12px}

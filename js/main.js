@@ -26,38 +26,32 @@ document.getElementById("mobile-nav-toggle")?.addEventListener("click", openMobi
 document.getElementById("sidebar-backdrop")?.addEventListener("click", closeMobileSidebar);
 
 // ── Auto-hide topbar on scroll-down, restore on scroll-up ────────────
-// Uses negative margin-top so the topbar's space actually collapses and
-// #content reclaims it — vs transform which only hides the topbar
-// visually and leaves a useless dark bar at top. A tiny 5px dead-zone at
-// the very end of scroll prevents the layout collapse from firing during
-// iOS rubber-band, which is what caused the earlier "erratic jumping"
-// bug. .1s linear transition keeps the motion tight and proportional to
-// the finger scroll instead of feeling like a delayed animation.
+// Transform-only: GPU-accelerated, no layout reflow, smooth on iOS.
+// Class toggle (not inline style) so the CSS transition handles motion.
 (function setupTopbarAutoHide() {
   const content = document.getElementById("content");
   const topbar = document.getElementById("topbar");
   if (!content || !topbar) return;
+  // Clear any leftover inline margin-top from previous version of this code
+  // so the new transform-based hide isn't fighting an old layout-shift hide.
+  topbar.style.marginTop = "";
+
   let lastY = 0;
   let ticking = false;
   const SCROLL_THRESHOLD = 6;    // ignore micro-scrolls
   const SHOW_BELOW_PX   = 60;    // always show topbar near the very top
-  const BOTTOM_DEAD_ZONE = 5;    // skip toggle in the rubber-band area
 
   content.addEventListener("scroll", () => {
     if (ticking) return;
     ticking = true;
     requestAnimationFrame(() => {
       const y = content.scrollTop;
-      const maxY = content.scrollHeight - content.clientHeight;
-      const atBottom = y >= maxY - BOTTOM_DEAD_ZONE;
       const delta = y - lastY;
       if (Math.abs(delta) > SCROLL_THRESHOLD) {
-        if (!atBottom) {
-          if (delta > 0 && y > SHOW_BELOW_PX) {
-            topbar.style.marginTop = "-" + topbar.offsetHeight + "px";
-          } else if (delta < 0) {
-            topbar.style.marginTop = "0px";
-          }
+        if (delta > 0 && y > SHOW_BELOW_PX) {
+          topbar.classList.add("topbar-hidden");
+        } else if (delta < 0) {
+          topbar.classList.remove("topbar-hidden");
         }
         lastY = y;
       }
@@ -101,12 +95,23 @@ function refreshFilterUI() {
   pltSel.classList.toggle("active", !!STATE.filterPlt);
   sectSel.classList.toggle("active", !!STATE.filterSect);
   if (clearBtn) clearBtn.style.display = isFilterActive() ? "" : "none";
+
+  // Mobile filter toggle button reflects the current scope so the user can
+  // see at a glance what's active without opening the popover.
+  const toggleBtn = document.getElementById("mobile-filter-toggle");
+  if (toggleBtn) {
+    const label = isFilterActive() ? filterLabel() : "All";
+    toggleBtn.textContent = label;
+    toggleBtn.classList.toggle("active", isFilterActive());
+  }
 }
 
 function initFilterControls() {
   const pltSel = document.getElementById("filter-plt");
   const sectSel = document.getElementById("filter-sect");
   const clearBtn = document.getElementById("filter-clear");
+  const panel = document.getElementById("topbar-filters");
+  const toggleBtn = document.getElementById("mobile-filter-toggle");
 
   pltSel.addEventListener("change", () => {
     STATE.filterPlt = pltSel.value;
@@ -124,6 +129,9 @@ function initFilterControls() {
     STATE.filterSect = sectSel.value;
     saveFilter();
     render();
+    // On mobile, close the popover after picking a section — the user is
+    // done choosing scope.
+    panel?.classList.remove("open");
   });
 
   clearBtn.addEventListener("click", () => {
@@ -131,6 +139,18 @@ function initFilterControls() {
     STATE.filterSect = "";
     saveFilter();
     render();
+    panel?.classList.remove("open");
+  });
+
+  // Mobile: toggle the scope popover. Outside-tap also closes it.
+  toggleBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    panel?.classList.toggle("open");
+  });
+  document.addEventListener("click", (e) => {
+    if (!panel?.classList.contains("open")) return;
+    if (panel.contains(e.target) || toggleBtn?.contains(e.target)) return;
+    panel.classList.remove("open");
   });
 }
 
