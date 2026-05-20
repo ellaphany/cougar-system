@@ -745,7 +745,7 @@ function renderPolar(el) {
       <div style="display:flex;gap:8px">
         <label class="btn" style="cursor:pointer">📸 Analyse Photo<input type="file" id="pp-file" accept="image/jpeg,image/png,image/webp" onchange="ppHandleFile(this)" style="display:none"></label>
 
-        <button class="btn btn-success" onclick="pushTab('PolarFlow',STATE.polar)">Push to Sheet</button><label class="btn" style="cursor:pointer">📸 Analyse Photo<input type="file" accept="image/jpeg,image/png,image/webp" onchange="ppHandleFile(this)" style="display:none"></label>
+        <button class="btn btn-success" onclick="pushTab('PolarFlow',STATE.polar)">Push to Sheet</button><label class="btn" style="cursor:pointer">📸 Analyse Photo<input type="file" accept="image/jpeg,image/png,image/webp" onchange="onchange="console.log('file picked', this.files[0]); ppHandleFile(this)"" style="display:none"></label>
 <label class="btn btn-primary" style="cursor:pointer">Import Polar CSV<input type="file" accept=".csv" onchange="importPolar(this)" style="display:none"></label>
       </div>
     </div>
