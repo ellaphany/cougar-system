@@ -744,8 +744,9 @@ function renderPolar(el) {
       <h2 style="font-size:18px;font-weight:700">Polar Flow Data${isFilterActive() ? ` <span style="color:var(--accent);font-size:13px">[${filterLabel()}: ${scoped.length}/${STATE.polar.length}]</span>` : ""}</h2>
       <div style="display:flex;gap:8px">
         <label class="btn" style="cursor:pointer">📸 Analyse Photo<input type="file" id="pp-file" accept="image/jpeg,image/png,image/webp" onchange="ppHandleFile(this)" style="display:none"></label>
+
+        <button class="btn btn-success" onclick="pushTab('PolarFlow',STATE.polar)">Push to Sheet</button><label class="btn" style="cursor:pointer">📸 Analyse Photo<input type="file" accept="image/jpeg,image/png,image/webp" onchange="ppHandleFile(this)" style="display:none"></label>
 <label class="btn btn-primary" style="cursor:pointer">Import Polar CSV<input type="file" accept=".csv" onchange="importPolar(this)" style="display:none"></label>
-        <button class="btn btn-success" onclick="pushTab('PolarFlow',STATE.polar)">Push to Sheet</button>
       </div>
     </div>
     <div class="card"><h3>Expected CSV Columns</h3><code class="mono" style="font-size:11px;color:var(--accent)">4D, Conduct, Date, Avg HR, Max HR, Min HR, Calories, Training Load, Recovery, Duration, Distance</code></div>
