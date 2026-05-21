@@ -1,13 +1,12 @@
 /**
  * polar-photo.js  —  AI photo analyser for Cougar Data System
- * Calls the Cloudflare Worker proxy instead of Anthropic directly.
- * Replace WORKER_URL below with your actual Worker URL after deploying.
+ * Reads Polar class summary screens, extracts per-person HR/calorie data,
+ * cross-references nominal roll for absentees, and exports to Excel.
  */
 (function () {
   'use strict';
 
-  // !! REPLACE THIS with your Cloudflare Worker URL after deploying !!
-  const WORKER_URL = 'https://cougar-photo-proxy.isaaclj007.workers.dev/';
+  const WORKER_URL = 'cougar-photo-proxy.isaaclj007.workers.dev';
 
   /* ── NOMINAL ROLL ──────────────────────────────────────────────────── */
   const FALLBACK_ROLL = {
@@ -42,7 +41,11 @@
     });
   }
 
-  /* ── CLAUDE API via Worker proxy ───────────────────────────────────── */
+  /* ── STATE: accumulate results across multiple photo uploads ─────── */
+  // Keyed by 4D number so uploading more pages merges/updates data
+  let accumulated = {};
+
+  /* ── CLAUDE API ────────────────────────────────────────────────────── */
   async function analysePhoto(base64Image, mediaType) {
     const roll = getNominalRoll();
     const allIds = Object.keys(roll).sort();
@@ -52,18 +55,31 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: `You are an assistant helping a Singapore Army company analyse fitness class photos.
-4D numbers are in the format C followed by 4 digits (e.g. C1101).
-Valid nominal roll: ${allIds.join(', ')}.
-1. Read all 4D numbers visible left to right, top to bottom.
-2. Only include numbers from the nominal roll above.
-3. If a Polar/fitness summary screen is visible extract maxHR, avgHR, calories — else set null.
-Reply ONLY with valid JSON, no markdown:
-{"present":["C1101"],"fitness":{"maxHR":185,"avgHR":155,"calories":420},"notes":""}`,
+        max_tokens: 2000,
+        system: `You are reading a Polar fitness class summary screen photo from a Singapore Army unit.
+
+Each card on the screen shows one participant. The card header contains a 4D number like "C1101", "C4205" etc — it always starts with C followed by 4 digits. Sometimes it shows as lowercase "c1101" — always normalise to uppercase. The rest of the card header (e.g. "S", "Daren N", "T") is just a name fragment, ignore it.
+
+For EACH card visible, extract:
+- id: the 4D number (uppercase, e.g. "C1101")
+- avgHR: the average heart rate in bpm (the smaller heart icon value)
+- maxHR: the maximum heart rate in bpm (the larger heart icon value)  
+- calories: the calorie value shown
+
+Valid 4D numbers in this unit: ${allIds.join(', ')}
+Only return entries whose id appears in this list.
+
+Return ONLY valid JSON, no markdown, no explanation:
+{
+  "participants": [
+    {"id":"C1101","avgHR":118,"maxHR":146,"calories":204},
+    {"id":"C1102","avgHR":143,"maxHR":181,"calories":283}
+  ],
+  "pageNote": "optional observation e.g. page 3 of 6"
+}`,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
-          { type: 'text', text: 'Analyse this photo.' }
+          { type: 'text', text: 'Extract all participant cards from this Polar summary screen.' }
         ]}]
       })
     });
@@ -78,66 +94,105 @@ Reply ONLY with valid JSON, no markdown:
     return JSON.parse(raw);
   }
 
-  /* ── MODAL ─────────────────────────────────────────────────────────── */
-  function showModal(result) {
-    const roll = getNominalRoll();
-    const presentSet = new Set((result.present || []).map(s => s.toUpperCase()));
-    const absentIds = Object.keys(roll).sort().filter(id => !presentSet.has(id));
-    const { fitness } = result;
+  /* ── EXCEL EXPORT ──────────────────────────────────────────────────── */
+  function exportToExcel(roll) {
+    const rows = [['4D', 'Name', 'Avg HR (bpm)', 'Max HR (bpm)', 'Calories', 'Status']];
+    const allIds = Object.keys(roll).sort();
 
-    let fitnessHTML = '';
-    if (fitness && (fitness.maxHR || fitness.avgHR || fitness.calories)) {
-      fitnessHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.25rem;">
-        ${[
-          { label: 'Max HR',   value: fitness.maxHR    ? fitness.maxHR    + ' bpm'  : '—', icon: '❤️' },
-          { label: 'Avg HR',   value: fitness.avgHR    ? fitness.avgHR    + ' bpm'  : '—', icon: '💓' },
-          { label: 'Calories', value: fitness.calories ? fitness.calories + ' kcal' : '—', icon: '🔥' },
-        ].map(c => `<div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${c.icon} ${c.label}</div>
-          <div style="font-size:20px;font-weight:700;">${c.value}</div>
-        </div>`).join('')}
-      </div>`;
-    } else {
-      fitnessHTML = `<div style="font-size:12px;color:var(--muted);background:var(--surface2);padding:10px 14px;border-radius:8px;margin-bottom:1.25rem;">
-        No fitness data detected. Photograph the Polar summary screen too for HR &amp; calories.
-      </div>`;
+    allIds.forEach(id => {
+      const data = accumulated[id];
+      if (data) {
+        rows.push([id, roll[id], data.avgHR || '', data.maxHR || '', data.calories || '', 'Present']);
+      } else {
+        rows.push([id, roll[id], '', '', '', 'Absent']);
+      }
+    });
+
+    // Build CSV (works without a library, downloadable as .csv which Excel opens)
+    const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `polar-class-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /* ── RENDER MODAL ──────────────────────────────────────────────────── */
+  function renderModal() {
+    const roll = getNominalRoll();
+    const allIds = Object.keys(roll).sort();
+    const presentIds = Object.keys(accumulated);
+    const absentIds = allIds.filter(id => !accumulated[id]);
+
+    // Summary row
+    let html = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentIds.length} present</span>
+      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
+      <button id="pp-export-btn" class="btn" style="margin-left:auto;font-size:12px;">⬇ Export to Excel</button>
+      <button id="pp-clear-btn" class="btn btn-danger" style="font-size:12px;">✕ Clear all</button>
+    </div>`;
+
+    // Present table with fitness data
+    if (presentIds.length > 0) {
+      html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--green);">Present (${presentIds.length})</div>
+      <div style="overflow-x:auto;margin-bottom:1.25rem;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:6px 8px;color:var(--muted);">4D</th>
+          <th style="text-align:left;padding:6px 8px;color:var(--muted);">Name</th>
+          <th style="padding:6px 8px;color:var(--muted);">💓 Avg HR</th>
+          <th style="padding:6px 8px;color:var(--muted);">❤️ Max HR</th>
+          <th style="padding:6px 8px;color:var(--muted);">🔥 Cal</th>
+        </tr></thead><tbody>`;
+      presentIds.sort().forEach(id => {
+        const d = accumulated[id];
+        const avgColor = d.avgHR > 160 ? 'var(--red)' : d.avgHR > 140 ? 'var(--orange)' : 'var(--green)';
+        html += `<tr style="border-bottom:0.5px solid var(--border);">
+          <td style="padding:5px 8px;font-family:monospace;font-weight:700;color:var(--accent);">${id}</td>
+          <td style="padding:5px 8px;">${roll[id] || ''}</td>
+          <td style="padding:5px 8px;text-align:center;font-weight:600;color:${avgColor};">${d.avgHR || '—'}</td>
+          <td style="padding:5px 8px;text-align:center;font-weight:600;">${d.maxHR || '—'}</td>
+          <td style="padding:5px 8px;text-align:center;">${d.calories || '—'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
     }
 
-    let absentHTML = '';
-    if (absentIds.length === 0) {
-      absentHTML = `<div style="padding:10px 14px;border-radius:8px;background:#1a3d1a;color:#6fcf6f;font-size:13px;">✓ All members accounted for.</div>`;
-    } else {
+    // Absent list grouped by plt/sec
+    if (absentIds.length > 0) {
       const groups = {};
       absentIds.forEach(id => {
         const key = 'Plt ' + id[1] + ' Sec ' + id[2];
         (groups[key] = groups[key] || []).push(id);
       });
-      absentHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:8px;">${absentIds.length} absent</div>`;
+      html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--red);">Absent (${absentIds.length})</div>`;
       Object.entries(groups).sort().forEach(([key, ids]) => {
-        absentHTML += `<div style="margin-bottom:10px;">
+        html += `<div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">${key}</div>`;
         ids.forEach(id => {
-          absentHTML += `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--surface2);border-radius:6px;margin-bottom:3px;border:1px solid var(--border);">
-            <span style="font-size:12px;font-weight:700;padding:2px 7px;border-radius:4px;background:#3d1a1a;color:#f28b82;font-family:monospace;">${id}</span>
-            <span style="font-size:13px;">${roll[id] || ''}</span>
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface2);border-radius:6px;margin-bottom:3px;">
+            <span style="font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;background:#3d1a1a;color:#f28b82;font-family:monospace;">${id}</span>
+            <span style="font-size:12px;">${roll[id] || ''}</span>
           </div>`;
         });
-        absentHTML += `</div>`;
+        html += `</div>`;
       });
     }
 
-    const summaryHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentSet.size} present</span>
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
-    </div>`;
-
-    const notesHTML = result.notes
-      ? `<div style="font-size:12px;color:var(--muted);margin-top:12px;padding-top:10px;border-top:1px solid var(--border);"><strong>Note:</strong> ${result.notes}</div>`
-      : '';
-
-    document.getElementById('modal-title').textContent = '📸 Photo Analysis Results';
-    document.getElementById('modal-body').innerHTML = fitnessHTML + summaryHTML + absentHTML + notesHTML;
+    document.getElementById('modal-title').textContent = `📸 Class Analysis — ${presentIds.length} present, ${absentIds.length} absent`;
+    document.getElementById('modal-body').innerHTML = html;
     document.getElementById('modal-overlay').classList.remove('hidden');
+
+    // Wire export button
+    document.getElementById('pp-export-btn').addEventListener('click', () => exportToExcel(roll));
+
+    // Wire clear button
+    document.getElementById('pp-clear-btn').addEventListener('click', () => {
+      accumulated = {};
+      document.getElementById('modal-overlay').classList.add('hidden');
+    });
   }
 
   /* ── GLOBAL ENTRY POINT ────────────────────────────────────────────── */
@@ -146,17 +201,33 @@ Reply ONLY with valid JSON, no markdown:
     if (!file) return;
     input.value = '';
 
-    if (!file.type.startsWith('image/')) { alert('Please select an image file (JPG, PNG, or WEBP).'); return; }
+    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
     if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10 MB.'); return; }
 
+    // Show loading modal
     document.getElementById('modal-title').textContent = '📸 Analysing photo…';
-    document.getElementById('modal-body').innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);">⏳ Sending to Claude, please wait…</div>`;
+    document.getElementById('modal-body').innerHTML = `
+      <div style="text-align:center;padding:2rem;color:var(--muted);">
+        ⏳ Reading Polar screen…<br>
+        <div style="font-size:12px;margin-top:8px;">${Object.keys(accumulated).length > 0 ? Object.keys(accumulated).length + ' participants already loaded from previous photos.' : 'Upload multiple pages to build the full picture.'}</div>
+      </div>`;
     document.getElementById('modal-overlay').classList.remove('hidden');
 
     try {
       const b64 = await fileToBase64(file);
       const result = await analysePhoto(b64, file.type);
-      showModal(result);
+
+      // Merge new results into accumulated state
+      (result.participants || []).forEach(p => {
+        if (p.id) accumulated[p.id.toUpperCase()] = {
+          avgHR: p.avgHR,
+          maxHR: p.maxHR,
+          calories: p.calories
+        };
+      });
+
+      renderModal();
+
     } catch (err) {
       document.getElementById('modal-title').textContent = '❌ Analysis failed';
       document.getElementById('modal-body').innerHTML = `<div style="color:var(--red);padding:1rem;">${err.message}</div>`;
