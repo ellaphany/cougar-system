@@ -1,7 +1,9 @@
 /**
  * polar-photo.js  —  AI photo analyser for Cougar Data System
- * Reads Polar class summary screens, extracts per-person HR/calorie data,
- * cross-references nominal roll for absentees, and exports to Excel.
+ * - Patches renderPolar() to append a photo panel below the CSV table
+ * - Single "Analyse Photo" button in header removed; panel has its own upload
+ * - Results show in the existing modal
+ * - Multi-page accumulation + CSV export
  */
 (function () {
   'use strict';
@@ -41,8 +43,7 @@
     });
   }
 
-  /* ── STATE: accumulate results across multiple photo uploads ─────── */
-  // Keyed by 4D number so uploading more pages merges/updates data
+  /* ── ACCUMULATED RESULTS across multiple photo uploads ───────────── */
   let accumulated = {};
 
   /* ── CLAUDE API ────────────────────────────────────────────────────── */
@@ -58,25 +59,19 @@
         max_tokens: 2000,
         system: `You are reading a Polar fitness class summary screen photo from a Singapore Army unit.
 
-Each card on the screen shows one participant. The card header contains a 4D number like "C1101", "C4205" etc — it always starts with C followed by 4 digits. Sometimes it shows as lowercase "c1101" — always normalise to uppercase. The rest of the card header (e.g. "S", "Daren N", "T") is just a name fragment, ignore it.
+Each card on the screen shows one participant. The card header contains a 4D number like "C1101", "C4205" — always starts with C followed by 4 digits. It may show as lowercase "c1101" — normalise to uppercase. The rest of the header (e.g. "S", "Daren N") is a name fragment, ignore it.
 
-For EACH card visible, extract:
-- id: the 4D number (uppercase, e.g. "C1101")
-- avgHR: the average heart rate in bpm (the smaller heart icon value)
-- maxHR: the maximum heart rate in bpm (the larger heart icon value)  
-- calories: the calorie value shown
+For EACH card visible extract:
+- id: the 4D number (uppercase)
+- avgHR: average heart rate in bpm (smaller heart icon)
+- maxHR: maximum heart rate in bpm (larger heart icon)
+- calories: calorie value shown
 
-Valid 4D numbers in this unit: ${allIds.join(', ')}
-Only return entries whose id appears in this list.
+Valid 4D numbers: ${allIds.join(', ')}
+Only return entries whose id is in this list.
 
-Return ONLY valid JSON, no markdown, no explanation:
-{
-  "participants": [
-    {"id":"C1101","avgHR":118,"maxHR":146,"calories":204},
-    {"id":"C1102","avgHR":143,"maxHR":181,"calories":283}
-  ],
-  "pageNote": "optional observation e.g. page 3 of 6"
-}`,
+Respond ONLY with valid JSON, no markdown:
+{"participants":[{"id":"C1101","avgHR":118,"maxHR":146,"calories":204}],"pageNote":""}`,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
           { type: 'text', text: 'Extract all participant cards from this Polar summary screen.' }
@@ -94,22 +89,17 @@ Return ONLY valid JSON, no markdown, no explanation:
     return JSON.parse(raw);
   }
 
-  /* ── EXCEL EXPORT ──────────────────────────────────────────────────── */
-  function exportToExcel(roll) {
+  /* ── EXPORT TO CSV ─────────────────────────────────────────────────── */
+  function exportToCSV(roll) {
     const rows = [['4D', 'Name', 'Avg HR (bpm)', 'Max HR (bpm)', 'Calories', 'Status']];
-    const allIds = Object.keys(roll).sort();
-
-    allIds.forEach(id => {
-      const data = accumulated[id];
-      if (data) {
-        rows.push([id, roll[id], data.avgHR || '', data.maxHR || '', data.calories || '', 'Present']);
-      } else {
-        rows.push([id, roll[id], '', '', '', 'Absent']);
-      }
+    Object.keys(roll).sort().forEach(id => {
+      const d = accumulated[id];
+      rows.push(d
+        ? [id, roll[id], d.avgHR || '', d.maxHR || '', d.calories || '', 'Present']
+        : [id, roll[id], '', '', '', 'Absent']
+      );
     });
-
-    // Build CSV (works without a library, downloadable as .csv which Excel opens)
-    const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -119,34 +109,34 @@ Return ONLY valid JSON, no markdown, no explanation:
     URL.revokeObjectURL(url);
   }
 
-  /* ── RENDER MODAL ──────────────────────────────────────────────────── */
+  /* ── RENDER MODAL RESULTS ──────────────────────────────────────────── */
   function renderModal() {
     const roll = getNominalRoll();
     const allIds = Object.keys(roll).sort();
-    const presentIds = Object.keys(accumulated);
+    const presentIds = Object.keys(accumulated).sort();
     const absentIds = allIds.filter(id => !accumulated[id]);
 
-    // Summary row
-    let html = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentIds.length} present</span>
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
-      <button id="pp-export-btn" class="btn" style="margin-left:auto;font-size:12px;">⬇ Export to Excel</button>
-      <button id="pp-clear-btn" class="btn btn-danger" style="font-size:12px;">✕ Clear all</button>
-    </div>`;
+    let html = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+        <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentIds.length} present</span>
+        <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
+        <button id="pp-export-btn" class="btn" style="margin-left:auto;font-size:12px;">⬇ Export to Excel</button>
+        <button id="pp-reset-btn" class="btn" style="font-size:12px;color:var(--red);">✕ Clear all</button>
+      </div>`;
 
-    // Present table with fitness data
+    // Present table
     if (presentIds.length > 0) {
       html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--green);">Present (${presentIds.length})</div>
-      <div style="overflow-x:auto;margin-bottom:1.25rem;">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead><tr style="border-bottom:1px solid var(--border);">
-          <th style="text-align:left;padding:6px 8px;color:var(--muted);">4D</th>
-          <th style="text-align:left;padding:6px 8px;color:var(--muted);">Name</th>
-          <th style="padding:6px 8px;color:var(--muted);">💓 Avg HR</th>
-          <th style="padding:6px 8px;color:var(--muted);">❤️ Max HR</th>
-          <th style="padding:6px 8px;color:var(--muted);">🔥 Cal</th>
-        </tr></thead><tbody>`;
-      presentIds.sort().forEach(id => {
+        <div style="overflow-x:auto;margin-bottom:1.25rem;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);">4D</th>
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);">Name</th>
+            <th style="padding:6px 8px;color:var(--muted);">💓 Avg HR</th>
+            <th style="padding:6px 8px;color:var(--muted);">❤️ Max HR</th>
+            <th style="padding:6px 8px;color:var(--muted);">🔥 Cal</th>
+          </tr></thead><tbody>`;
+      presentIds.forEach(id => {
         const d = accumulated[id];
         const avgColor = d.avgHR > 160 ? 'var(--red)' : d.avgHR > 140 ? 'var(--orange)' : 'var(--green)';
         html += `<tr style="border-bottom:0.5px solid var(--border);">
@@ -160,7 +150,7 @@ Return ONLY valid JSON, no markdown, no explanation:
       html += `</tbody></table></div>`;
     }
 
-    // Absent list grouped by plt/sec
+    // Absent list
     if (absentIds.length > 0) {
       const groups = {};
       absentIds.forEach(id => {
@@ -181,57 +171,179 @@ Return ONLY valid JSON, no markdown, no explanation:
       });
     }
 
-    document.getElementById('modal-title').textContent = `📸 Class Analysis — ${presentIds.length} present, ${absentIds.length} absent`;
+    document.getElementById('modal-title').textContent =
+      `📸 Class Analysis — ${presentIds.length} present · ${absentIds.length} absent`;
     document.getElementById('modal-body').innerHTML = html;
     document.getElementById('modal-overlay').classList.remove('hidden');
 
-    // Wire export button
-    document.getElementById('pp-export-btn').addEventListener('click', () => exportToExcel(roll));
-
-    // Wire clear button
-    document.getElementById('pp-clear-btn').addEventListener('click', () => {
+    document.getElementById('pp-export-btn').addEventListener('click', () => exportToCSV(roll));
+    document.getElementById('pp-reset-btn').addEventListener('click', () => {
       accumulated = {};
       document.getElementById('modal-overlay').classList.add('hidden');
+      updatePanelCounter();
     });
   }
 
-  /* ── GLOBAL ENTRY POINT ────────────────────────────────────────────── */
-  window.ppHandleFile = async function (input) {
-    const file = input.files[0];
-    if (!file) return;
-    input.value = '';
+  /* ── UPDATE COUNTER BADGE ON PANEL ────────────────────────────────── */
+  function updatePanelCounter() {
+    const badge = document.getElementById('pp-counter');
+    if (!badge) return;
+    const n = Object.keys(accumulated).length;
+    badge.textContent = n > 0 ? `${n} participants loaded across uploaded pages` : 'No pages analysed yet';
+    badge.style.color = n > 0 ? 'var(--green)' : 'var(--muted)';
+  }
 
-    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
+  /* ── ANALYSE A FILE ────────────────────────────────────────────────── */
+  async function handleFile(file) {
+    if (!file || !file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
     if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10 MB.'); return; }
 
-    // Show loading modal
-    document.getElementById('modal-title').textContent = '📸 Analysing photo…';
-    document.getElementById('modal-body').innerHTML = `
-      <div style="text-align:center;padding:2rem;color:var(--muted);">
-        ⏳ Reading Polar screen…<br>
-        <div style="font-size:12px;margin-top:8px;">${Object.keys(accumulated).length > 0 ? Object.keys(accumulated).length + ' participants already loaded from previous photos.' : 'Upload multiple pages to build the full picture.'}</div>
+    // Show preview
+    const img = document.getElementById('pp-img');
+    const preview = document.getElementById('pp-preview');
+    const fname = document.getElementById('pp-fname');
+    const analyseBtn = document.getElementById('pp-analyse-btn');
+    if (img) img.src = URL.createObjectURL(file);
+    if (fname) fname.textContent = file.name;
+    if (preview) preview.style.display = 'block';
+    if (analyseBtn) analyseBtn.dataset.pending = '1';
+
+    // Store file for when Analyse is clicked
+    window._ppPendingFile = file;
+  }
+
+  /* ── PANEL HTML ────────────────────────────────────────────────────── */
+  function buildPanel() {
+    const div = document.createElement('div');
+    div.id = 'polar-photo-panel';
+    div.innerHTML = `
+      <div class="card" style="margin-top:1.5rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px;">
+          <h3 style="margin:0;">📸 Class Photo Analysis</h3>
+          <span id="pp-counter" style="font-size:12px;color:var(--muted);">No pages analysed yet</span>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">
+          Upload each page of the Polar summary screen one at a time. Results accumulate across pages automatically.
+        </p>
+
+        <div id="pp-drop" style="border:1.5px dashed var(--border);border-radius:8px;padding:1.5rem 1rem;text-align:center;cursor:pointer;margin-bottom:1rem;">
+          <div style="font-size:24px;margin-bottom:.3rem;">📷</div>
+          <div style="font-size:14px;color:var(--muted);">Drop photo here or <strong style="color:var(--accent);">click to browse</strong></div>
+          <div style="font-size:11px;color:var(--dim);margin-top:.2rem;">JPG, PNG, WEBP — max 10 MB</div>
+          <input type="file" id="pp-file" accept="image/jpeg,image/png,image/webp" style="display:none;">
+        </div>
+
+        <div id="pp-preview" style="display:none;margin-bottom:1rem;">
+          <img id="pp-img" style="max-width:100%;max-height:320px;border-radius:8px;border:1px solid var(--border);display:block;">
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button id="pp-analyse-btn" class="btn btn-primary">Analyse this page</button>
+            <button id="pp-discard-btn" class="btn">Discard</button>
+            <span id="pp-fname" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+        </div>
+
+        <div id="pp-status" style="display:none;font-size:13px;color:var(--muted);padding:6px 0;"></div>
+
+        <div style="display:flex;gap:8px;margin-top:.5rem;">
+          <button id="pp-view-btn" class="btn" style="display:none;">View results</button>
+        </div>
       </div>`;
-    document.getElementById('modal-overlay').classList.remove('hidden');
+    return div;
+  }
 
-    try {
-      const b64 = await fileToBase64(file);
-      const result = await analysePhoto(b64, file.type);
+  /* ── WIRE PANEL EVENTS ─────────────────────────────────────────────── */
+  function wirePanel() {
+    const drop       = document.getElementById('pp-drop');
+    const fileIn     = document.getElementById('pp-file');
+    const preview    = document.getElementById('pp-preview');
+    const analyseBtn = document.getElementById('pp-analyse-btn');
+    const discardBtn = document.getElementById('pp-discard-btn');
+    const status     = document.getElementById('pp-status');
+    const viewBtn    = document.getElementById('pp-view-btn');
+    if (!drop) return;
 
-      // Merge new results into accumulated state
-      (result.participants || []).forEach(p => {
-        if (p.id) accumulated[p.id.toUpperCase()] = {
-          avgHR: p.avgHR,
-          maxHR: p.maxHR,
-          calories: p.calories
-        };
-      });
+    drop.addEventListener('click', () => fileIn.click());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; });
+    drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.style.borderColor = '';
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileIn.addEventListener('change', () => { if (fileIn.files[0]) handleFile(fileIn.files[0]); });
 
-      renderModal();
+    discardBtn.addEventListener('click', () => {
+      preview.style.display = 'none';
+      window._ppPendingFile = null;
+      fileIn.value = '';
+    });
 
-    } catch (err) {
-      document.getElementById('modal-title').textContent = '❌ Analysis failed';
-      document.getElementById('modal-body').innerHTML = `<div style="color:var(--red);padding:1rem;">${err.message}</div>`;
+    analyseBtn.addEventListener('click', async () => {
+      const file = window._ppPendingFile;
+      if (!file) return;
+
+      analyseBtn.disabled = true;
+      analyseBtn.textContent = 'Analysing…';
+      status.style.display = 'block';
+      status.textContent = '⏳ Sending to Claude…';
+
+      try {
+        const b64 = await fileToBase64(file);
+        const result = await analysePhoto(b64, file.type);
+
+        (result.participants || []).forEach(p => {
+          if (p.id) accumulated[p.id.toUpperCase()] = {
+            avgHR: p.avgHR, maxHR: p.maxHR, calories: p.calories
+          };
+        });
+
+        const n = result.participants ? result.participants.length : 0;
+        status.textContent = `✓ ${n} participants read from this page. ${Object.keys(accumulated).length} total loaded.`;
+        preview.style.display = 'none';
+        window._ppPendingFile = null;
+        fileIn.value = '';
+        viewBtn.style.display = 'inline-block';
+        updatePanelCounter();
+
+      } catch (err) {
+        status.textContent = '❌ Failed: ' + err.message;
+      } finally {
+        analyseBtn.disabled = false;
+        analyseBtn.textContent = 'Analyse this page';
+      }
+    });
+
+    viewBtn.addEventListener('click', () => renderModal());
+  }
+
+  /* ── PATCH renderPolar ─────────────────────────────────────────────── */
+  function patchRenderPolar() {
+    if (typeof window.renderPolar !== 'function') {
+      setTimeout(patchRenderPolar, 50);
+      return;
     }
+    const original = window.renderPolar;
+    window.renderPolar = function (el) {
+      original.call(this, el);
+      // Only add panel if not already there
+      if (!document.getElementById('polar-photo-panel')) {
+        el.appendChild(buildPanel());
+        wirePanel();
+      }
+    };
+  }
+
+  /* ── ALSO expose ppHandleFile for the header button ─────────────────
+     Keep this so the header button (if still in render.js) still works  */
+  window.ppHandleFile = function (input) {
+    const file = input.files[0];
+    if (file) handleFile(file);
+    input.value = '';
   };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', patchRenderPolar);
+  } else {
+    patchRenderPolar();
+  }
 
 })();
