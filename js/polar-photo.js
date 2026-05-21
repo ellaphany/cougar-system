@@ -1,16 +1,15 @@
 /**
- * polar-photo.js  —  AI-powered class photo analyser for Cougar Data System
- *
- * HOW IT WORKS:
- *   renderPolar() in render.js uses el.innerHTML = `...` which wipes any
- *   injected DOM every time the tab re-renders. So instead of injecting DOM,
- *   we patch window.renderPolar to append the photo panel HTML as part of the
- *   original render, then wire up events afterwards. This survives re-renders.
+ * polar-photo.js  —  AI photo analyser for Cougar Data System
+ * Calls the Cloudflare Worker proxy instead of Anthropic directly.
+ * Replace WORKER_URL below with your actual Worker URL after deploying.
  */
 (function () {
   'use strict';
 
-  /* ── NOMINAL ROLL ────────────────────────────────────────────────────── */
+  // !! REPLACE THIS with your Cloudflare Worker URL after deploying !!
+  const WORKER_URL = 'https://cougar-photo-proxy.isaaclj007.workers.dev/';
+
+  /* ── NOMINAL ROLL ──────────────────────────────────────────────────── */
   const FALLBACK_ROLL = {
     "C1101":"SIDDIQ MUSTAQIM BIN KAMALLUDIN","C1102":"NEO HUAN REN DAREN","C1104":"FOO HONG LIANG","C1105":"LAU ZHI JIE","C1106":"NUR IMAN SHAFIQ BIN MUHAMAD RHAIMEI","C1107":"TAN YOU JIE","C1108":"TAN JUNN SIANG, JAMES","C1109":"DANIAL IBRAHIM BIN MOHAMMAD FIRDAUS","C1110":"TAN JUAN TIN, JIREH","C1111":"LIM RUI SIANG DARREN","C1112":"LIM JOO KAI, ANSON","C1113":"SHIVAIN SHORY S/O SAWINDER KUMAR SHORY","C1114":"DYLAN CHIN YU RONG","C1115":"ISAAC HOO YU KAI","C1116":"CHOW JUN MING",
     "C1201":"CHIU KE LUN REYES","C1202":"IAN FOONG YIN HNG","C1203":"NG WEI JIE, DALSON","C1205":"KAN XIEU YONG, SHAUN","C1206":"SHAIK MUHAMMAD HAZIQ S/O ABDUL RASHID","C1207":"LEE WEN JIE","C1208":"CHOO ZI JUN JONAS","C1209":"IRFAN NUR HAQIMI BIN ZAZALI","C1210":"CEDRIC HO HONG HUNG","C1211":"RYAN NG RUI YANG","C1212":"CHIN JUN EE","C1213":"AUSTON YONG",
@@ -24,17 +23,16 @@
 
   function getNominalRoll() {
     try {
-      const soldiers = window.STATE && window.STATE.roster;
-      if (soldiers && soldiers.length > 0) {
+      const roster = window.STATE && window.STATE.roster;
+      if (roster && roster.length > 0) {
         const roll = {};
-        soldiers.forEach(s => { if (s.id) roll[s.id.toUpperCase()] = s.name || ''; });
+        roster.forEach(s => { if (s.id) roll[s.id.toUpperCase()] = s.name || ''; });
         return roll;
       }
     } catch (e) {}
     return FALLBACK_ROLL;
   }
 
-  /* ── HELPERS ─────────────────────────────────────────────────────────── */
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -44,40 +42,35 @@
     });
   }
 
-  /* ── CLAUDE API ──────────────────────────────────────────────────────── */
+  /* ── CLAUDE API via Worker proxy ───────────────────────────────────── */
   async function analysePhoto(base64Image, mediaType) {
     const roll = getNominalRoll();
     const allIds = Object.keys(roll).sort();
 
-    const systemPrompt = `You are an assistant helping a Singapore Army company analyse fitness class photos.
-The company uses 4D numbers in the format C followed by 4 digits (e.g. C1101, C4213).
-The nominal roll of valid 4D numbers is: ${allIds.join(', ')}.
-
-When given a photo:
-1. Read ALL 4D numbers visible (on bibs, Polar watch screens, boards, name tags etc.), left to right, top to bottom.
-2. Only report numbers that exist in the nominal roll — ignore unrecognised ones.
-3. If a Polar/fitness summary screen is visible, extract: max heart rate (bpm), average heart rate (bpm), calories burned (kcal). Set to null if not visible.
-
-Respond ONLY with valid JSON, no markdown fences, no explanation:
-{"present":["C1101","C1205"],"fitness":{"maxHR":185,"avgHR":155,"calories":420},"notes":"optional"}`;
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1000,
-        system: systemPrompt,
+        system: `You are an assistant helping a Singapore Army company analyse fitness class photos.
+4D numbers are in the format C followed by 4 digits (e.g. C1101).
+Valid nominal roll: ${allIds.join(', ')}.
+1. Read all 4D numbers visible left to right, top to bottom.
+2. Only include numbers from the nominal roll above.
+3. If a Polar/fitness summary screen is visible extract maxHR, avgHR, calories — else set null.
+Reply ONLY with valid JSON, no markdown:
+{"present":["C1101"],"fitness":{"maxHR":185,"avgHR":155,"calories":420},"notes":""}`,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
-          { type: 'text', text: 'Analyse this class photo. Extract all 4D numbers and any fitness data shown.' }
+          { type: 'text', text: 'Analyse this photo.' }
         ]}]
       })
     });
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || `API error ${resp.status}`);
+      throw new Error(err.error?.message || `Proxy error ${resp.status}`);
     }
     const data = await resp.json();
     const raw = (data.content || []).map(b => b.text || '').join('').trim()
@@ -85,193 +78,89 @@ Respond ONLY with valid JSON, no markdown fences, no explanation:
     return JSON.parse(raw);
   }
 
-  /* ── RENDER RESULTS ──────────────────────────────────────────────────── */
-  function renderResults(result, container) {
+  /* ── MODAL ─────────────────────────────────────────────────────────── */
+  function showModal(result) {
     const roll = getNominalRoll();
     const presentSet = new Set((result.present || []).map(s => s.toUpperCase()));
-    const allIds = Object.keys(roll).sort();
-    const absentIds = allIds.filter(id => !presentSet.has(id));
+    const absentIds = Object.keys(roll).sort().filter(id => !presentSet.has(id));
     const { fitness } = result;
 
-    let html = '';
-
-    // Fitness cards
+    let fitnessHTML = '';
     if (fitness && (fitness.maxHR || fitness.avgHR || fitness.calories)) {
-      html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.2rem;">`;
-      [
-        { label: 'Max HR',    value: fitness.maxHR    ? fitness.maxHR    + ' bpm'  : '—', icon: '❤️' },
-        { label: 'Avg HR',    value: fitness.avgHR    ? fitness.avgHR    + ' bpm'  : '—', icon: '💓' },
-        { label: 'Calories',  value: fitness.calories ? fitness.calories + ' kcal' : '—', icon: '🔥' },
-      ].forEach(c => {
-        html += `<div style="background:var(--surface2);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+      fitnessHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.25rem;">
+        ${[
+          { label: 'Max HR',   value: fitness.maxHR    ? fitness.maxHR    + ' bpm'  : '—', icon: '❤️' },
+          { label: 'Avg HR',   value: fitness.avgHR    ? fitness.avgHR    + ' bpm'  : '—', icon: '💓' },
+          { label: 'Calories', value: fitness.calories ? fitness.calories + ' kcal' : '—', icon: '🔥' },
+        ].map(c => `<div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${c.icon} ${c.label}</div>
-          <div style="font-size:20px;font-weight:700;color:var(--text);">${c.value}</div>
-        </div>`;
-      });
-      html += `</div>`;
+          <div style="font-size:20px;font-weight:700;">${c.value}</div>
+        </div>`).join('')}
+      </div>`;
     } else {
-      html += `<div style="font-size:12px;color:var(--muted);background:var(--surface2);padding:10px 14px;border-radius:8px;margin-bottom:1rem;">
-        No fitness data detected. For HR &amp; calories, also photograph the Polar class summary screen.
+      fitnessHTML = `<div style="font-size:12px;color:var(--muted);background:var(--surface2);padding:10px 14px;border-radius:8px;margin-bottom:1.25rem;">
+        No fitness data detected. Photograph the Polar summary screen too for HR &amp; calories.
       </div>`;
     }
 
-    // Attendance summary
-    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentSet.size} present</span>
-      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
-    </div>`;
-
-    // Absent list grouped by plt/sec
-    if (absentIds.length > 0) {
+    let absentHTML = '';
+    if (absentIds.length === 0) {
+      absentHTML = `<div style="padding:10px 14px;border-radius:8px;background:#1a3d1a;color:#6fcf6f;font-size:13px;">✓ All members accounted for.</div>`;
+    } else {
       const groups = {};
       absentIds.forEach(id => {
         const key = 'Plt ' + id[1] + ' Sec ' + id[2];
         (groups[key] = groups[key] || []).push(id);
       });
-      html += `<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">Absent members</div>`;
+      absentHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:8px;">${absentIds.length} absent</div>`;
       Object.entries(groups).sort().forEach(([key, ids]) => {
-        html += `<div style="margin-bottom:12px;">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">${key}</div>`;
+        absentHTML += `<div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">${key}</div>`;
         ids.forEach(id => {
-          html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--surface2);border-radius:7px;margin-bottom:4px;border:1px solid var(--border);">
-            <span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:5px;background:#3d1a1a;color:#f28b82;font-family:monospace;">${id}</span>
-            <span style="font-size:13px;color:var(--text);">${roll[id] || ''}</span>
+          absentHTML += `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--surface2);border-radius:6px;margin-bottom:3px;border:1px solid var(--border);">
+            <span style="font-size:12px;font-weight:700;padding:2px 7px;border-radius:4px;background:#3d1a1a;color:#f28b82;font-family:monospace;">${id}</span>
+            <span style="font-size:13px;">${roll[id] || ''}</span>
           </div>`;
         });
-        html += `</div>`;
+        absentHTML += `</div>`;
       });
-    } else {
-      html += `<div style="font-size:13px;padding:10px 14px;border-radius:8px;background:#1a3d1a;color:#6fcf6f;">✓ All members accounted for.</div>`;
     }
 
-    if (result.notes) {
-      html += `<div style="font-size:12px;color:var(--muted);margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><strong>Note:</strong> ${result.notes}</div>`;
-    }
-
-    container.innerHTML = html;
-  }
-
-  /* ── PANEL HTML ──────────────────────────────────────────────────────── */
-  function panelHTML() {
-    return `
-    <div id="polar-photo-panel" style="margin-top:1.5rem;">
-      <div class="card">
-        <h3>📸 Class Photo Analysis</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">
-          Upload a class photo to identify absent members. For heart rate &amp; calorie data, also photograph the Polar class summary screen.
-        </p>
-
-        <div id="pp-drop" style="border:1.5px dashed var(--border);border-radius:8px;padding:1.75rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s;margin-bottom:1rem;">
-          <div style="font-size:26px;margin-bottom:.4rem;">📷</div>
-          <div style="font-size:14px;color:var(--muted);">Drop photo here or <strong style="color:var(--accent);">click to browse</strong></div>
-          <div style="font-size:12px;color:var(--dim);margin-top:.2rem;">JPG, PNG, WEBP — max 10 MB</div>
-          <input type="file" id="pp-file" accept="image/jpeg,image/png,image/webp" style="display:none;">
-        </div>
-
-        <div id="pp-preview" style="display:none;margin-bottom:1rem;">
-          <img id="pp-img" style="max-width:100%;max-height:280px;border-radius:8px;border:1px solid var(--border);">
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <button id="pp-analyse-btn" class="btn btn-primary">Analyse photo</button>
-            <button id="pp-clear-btn" class="btn">Clear</button>
-            <span id="pp-filename" style="font-size:12px;color:var(--muted);"></span>
-          </div>
-        </div>
-
-        <div id="pp-status" style="display:none;font-size:13px;color:var(--muted);padding:8px 0;"></div>
-        <div id="pp-results" style="display:none;margin-top:.5rem;"></div>
-      </div>
+    const summaryHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">
+      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:#1a3d1a;color:#6fcf6f;">${presentSet.size} present</span>
+      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;background:${absentIds.length ? '#3d1a1a' : '#1a3d1a'};color:${absentIds.length ? '#f28b82' : '#6fcf6f'};">${absentIds.length} absent</span>
     </div>`;
+
+    const notesHTML = result.notes
+      ? `<div style="font-size:12px;color:var(--muted);margin-top:12px;padding-top:10px;border-top:1px solid var(--border);"><strong>Note:</strong> ${result.notes}</div>`
+      : '';
+
+    document.getElementById('modal-title').textContent = '📸 Photo Analysis Results';
+    document.getElementById('modal-body').innerHTML = fitnessHTML + summaryHTML + absentHTML + notesHTML;
+    document.getElementById('modal-overlay').classList.remove('hidden');
   }
 
-  /* ── WIRE UP EVENTS ──────────────────────────────────────────────────── */
-  function wirePanel() {
-    const drop       = document.getElementById('pp-drop');
-    const fileIn     = document.getElementById('pp-file');
-    const preview    = document.getElementById('pp-preview');
-    const img        = document.getElementById('pp-img');
-    const fname      = document.getElementById('pp-filename');
-    const status     = document.getElementById('pp-status');
-    const results    = document.getElementById('pp-results');
-    const analyseBtn = document.getElementById('pp-analyse-btn');
-    const clearBtn   = document.getElementById('pp-clear-btn');
-    if (!drop) return;
+  /* ── GLOBAL ENTRY POINT ────────────────────────────────────────────── */
+  window.ppHandleFile = async function (input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
 
-    let currentFile = null;
+    if (!file.type.startsWith('image/')) { alert('Please select an image file (JPG, PNG, or WEBP).'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10 MB.'); return; }
 
-    function loadFile(file) {
-      if (!file || !file.type.startsWith('image/')) return;
-      if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10 MB.'); return; }
-      currentFile = file;
-      img.src = URL.createObjectURL(file);
-      fname.textContent = file.name;
-      preview.style.display = 'block';
-      status.style.display = 'none';
-      results.style.display = 'none';
+    document.getElementById('modal-title').textContent = '📸 Analysing photo…';
+    document.getElementById('modal-body').innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);">⏳ Sending to Claude, please wait…</div>`;
+    document.getElementById('modal-overlay').classList.remove('hidden');
+
+    try {
+      const b64 = await fileToBase64(file);
+      const result = await analysePhoto(b64, file.type);
+      showModal(result);
+    } catch (err) {
+      document.getElementById('modal-title').textContent = '❌ Analysis failed';
+      document.getElementById('modal-body').innerHTML = `<div style="color:var(--red);padding:1rem;">${err.message}</div>`;
     }
-
-    drop.addEventListener('click', () => fileIn.click());
-    fileIn.addEventListener('change', () => { if (fileIn.files[0]) loadFile(fileIn.files[0]); });
-    drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; });
-    drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
-    drop.addEventListener('drop', e => {
-      e.preventDefault(); drop.style.borderColor = '';
-      if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-    });
-
-    clearBtn.addEventListener('click', () => {
-      currentFile = null; fileIn.value = ''; img.src = '';
-      preview.style.display = 'none';
-      status.style.display = 'none';
-      results.style.display = 'none';
-    });
-
-    analyseBtn.addEventListener('click', async () => {
-      if (!currentFile) return;
-      analyseBtn.disabled = true;
-      analyseBtn.textContent = 'Analysing…';
-      status.style.display = 'block';
-      status.textContent = '⏳ Sending to Claude for analysis…';
-      results.style.display = 'none';
-      try {
-        const b64 = await fileToBase64(currentFile);
-        const result = await analysePhoto(b64, currentFile.type || 'image/jpeg');
-        status.style.display = 'none';
-        results.style.display = 'block';
-        renderResults(result, results);
-      } catch (err) {
-        status.textContent = '❌ Analysis failed: ' + err.message;
-      } finally {
-        analyseBtn.disabled = false;
-        analyseBtn.textContent = 'Analyse photo';
-      }
-    });
-  }
-
-  /* ── PATCH renderPolar ───────────────────────────────────────────────── */
-  // Wait until render.js has defined renderPolar, then wrap it so our panel
-  // is always appended after the original content is written.
-  function patchRenderPolar() {
-    if (typeof window.renderPolar !== 'function') {
-      // render.js not loaded yet — try again shortly
-      setTimeout(patchRenderPolar, 50);
-      return;
-    }
-
-    const original = window.renderPolar;
-    window.renderPolar = function (el) {
-      // Run the original — this sets el.innerHTML
-      original.call(this, el);
-      // Append our panel HTML
-      el.insertAdjacentHTML('beforeend', panelHTML());
-      // Wire up button/drag events now that the DOM exists
-      wirePanel();
-    };
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', patchRenderPolar);
-  } else {
-    patchRenderPolar();
-  }
+  };
 
 })();
