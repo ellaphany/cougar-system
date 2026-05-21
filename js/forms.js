@@ -169,10 +169,11 @@ function openPerson(d4) {
       }).join("");
     }
     if (exercises.length) {
-      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px">Exercises logged</div>`;
+      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px">Physio visits</div>`;
       html += exercises.map(r => {
         const d = r.physioDate || r.timestamp || "";
-        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--teal);font-size:12px"><div style="color:var(--muted);font-size:10px">${d}</div>${r.exercises || ""}</div>`;
+        const exText = r.exercises || `<span style="color:var(--dim)">(no new exercises)</span>`;
+        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--teal);font-size:12px"><div style="color:var(--muted);font-size:10px">${d}</div>${exText}</div>`;
       }).join("");
     }
   }

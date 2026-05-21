@@ -222,11 +222,12 @@ function renderDashMSKCases(visible) {
       : `<div style="font-size:12px;color:var(--dim)">No injury description on file.</div>`;
 
     const exercises = c.orderedExercises.length
-      ? `<div style="margin-top:6px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Exercises logged (${c.orderedExercises.length})</div>${c.orderedExercises.map(e => {
+      ? `<div style="margin-top:6px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Physio visits (${c.orderedExercises.length})</div>${c.orderedExercises.map(e => {
           const d = e.physioDate || e.timestamp || "";
-          return `<div style="font-size:11px;padding:4px 6px;background:var(--bg);border-left:2px solid var(--teal);margin-bottom:3px"><span class="mono" style="color:var(--muted);font-size:10px">${d}</span> — ${e.exercises || ""}</div>`;
+          const exText = e.exercises ? ` — ${e.exercises}` : ` <span style="color:var(--dim)">(no new exercises)</span>`;
+          return `<div style="font-size:11px;padding:4px 6px;background:var(--bg);border-left:2px solid var(--teal);margin-bottom:3px"><span class="mono" style="color:var(--muted);font-size:10px">${d}</span>${exText}</div>`;
         }).join("")}</div>`
-      : `<div style="font-size:11px;color:var(--dim);margin-top:6px">No physio exercises logged yet.</div>`;
+      : `<div style="font-size:11px;color:var(--dim);margin-top:6px">No physio visits logged yet.</div>`;
 
     return `<div class="card" style="padding:12px;${faded ? 'opacity:.55;' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
