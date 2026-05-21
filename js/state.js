@@ -104,7 +104,10 @@ function normalizeMSK(records) {
     return "";
   };
   return (records || []).map(r => {
-    const rawD4 = String(pick(r, "4D (e.g. C1234)", "4D", "d4")).trim().replace(/^C/i, "");
+    // Accepts every header variant the form may have used over time —
+    // current ("4D (e.g. 1101)"), legacy ("4D (e.g. C1234)"), or just "4D".
+    // The defensive `^C` strip handles any recruit who still types "C1101".
+    const rawD4 = String(pick(r, "4D (e.g. 1101)", "4D (e.g. C1234)", "4D", "d4")).trim().replace(/^C/i, "");
     const clearedRaw = pick(r, "Cleared", "cleared");
     return {
       timestamp: pick(r, "Timestamp", "timestamp"),
