@@ -93,6 +93,16 @@
  *                (start = end = same date). startDate/endDate inclusive,
  *                display-format. `days` is numeric — defaults to
  *                (endDate − startDate + 1) but is editable for half-days.)
+ *
+ *   MSK:        timestamp | type | d4 | description | physioDate | cleared
+ *               (Recruit self-reports from a Google Form ("Cougar MSK /
+ *                Physio Log") that posts directly here. type ∈
+ *                {"Report Injury", "Log Exercises"}. `cleared` is NOT
+ *                in the form — manually add the column header after the
+ *                first form response lands, leave new rows blank. The
+ *                dashboard's "Mark Cleared" action writes TRUE; runs
+ *                via the standard pushTab so cleared bits round-trip on
+ *                the next Push All.)
  */
 
 var FRONTEND_BASE_URL = "https://coon-hound.github.io/cougar-system/";
@@ -380,7 +390,8 @@ function readAllTabs() {
     "PolarFlow": "polar",
     "ConductDetail": "conductDetail",
     "Appointments": "appointments",
-    "Leave": "leave"
+    "Leave": "leave",
+    "MSK": "msk"
   };
 
   var result = {};

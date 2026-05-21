@@ -151,6 +151,7 @@ function renderDashboard(el) {
       return `<tr onclick="openPerson('${r.id}')" style="cursor:pointer"><td class="mono" style="font-weight:700;color:var(--accent);vertical-align:top">${displayId(r.id)}</td><td style="text-align:left;vertical-align:top">${displayPersonLabel(r.id)}</td><td style="text-align:left;vertical-align:top">${tagsCell}</td><td style="text-align:left;font-size:11px;color:var(--muted);vertical-align:top">${originalCell}</td><td style="text-align:left;font-size:11px;color:var(--muted);vertical-align:top">${clearedCell}</td></tr>`;
     }).join("")}
     </tbody></table></div>` : ""}
+    ${renderDashMSKCases(visible)}
     ${renderDashLeaveOut(visible, today)}`;
 
   // Status Breakdown chart: tally every active status (a recruit on MC +
@@ -177,6 +178,80 @@ function renderDashboard(el) {
     data: { labels: STATE.attendance.map(a => a.conduct?.slice(0, 12)), datasets: [{ data: STATE.attendance.map(a => pct(a.participating, a.total)), backgroundColor: "#58A6FF44", borderColor: "#58A6FF", borderWidth: 1 }] },
     options: { plugins: { legend: { display: false } }, scales: { y: { min: 80, max: 100, grid: { color: "#30363D" }, ticks: { color: "#8B949E" } }, x: { grid: { display: false }, ticks: { color: "#8B949E", font: { size: 9 } } } } }
   });
+}
+
+// Active MSK Cases — recruits who self-reported an injury via the Google
+// Form ("Cougar MSK / Physio Log"). One card per recruit, aggregating
+// their initial injury text, any physio appointment we have on file, and
+// the timeline of exercises they've logged. Cleared cases are hidden by
+// default behind a toggle.
+function renderDashMSKCases(visible) {
+  const scoped = STATE.msk.filter(m => passesFilter(m.d4, visible));
+  if (!scoped.length) return "";
+
+  // Group by d4. Per-d4: active if ANY row is not cleared. Cleared if all
+  // are cleared.
+  const byD4 = {};
+  scoped.forEach(m => { (byD4[m.d4] = byD4[m.d4] || []).push(m); });
+
+  const cases = Object.entries(byD4).map(([d4, rows]) => {
+    const allCleared = rows.every(r => r.cleared);
+    const injuries = rows.filter(r => (r.type || "").toLowerCase().includes("report"));
+    const exercises = rows.filter(r => (r.type || "").toLowerCase().includes("log") || (r.type || "").toLowerCase().includes("exercise"));
+    // Latest injury report as the headline; sort by timestamp desc.
+    const tsOf = r => String(r.timestamp || r.Timestamp || "");
+    const latestInjury = [...injuries].sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1)[0];
+    const orderedExercises = [...exercises].sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1);
+    return { d4, rows, allCleared, latestInjury, orderedExercises };
+  });
+
+  const active = cases.filter(c => !c.allCleared);
+  const cleared = cases.filter(c => c.allCleared);
+
+  const renderCard = (c, faded) => {
+    const upcomingAppts = STATE.appointments.filter(a =>
+      a.d4 === c.d4 && !a.resolved && (displayDateToISO(a.date) || "") >= todayISO()
+    );
+    const apptLine = upcomingAppts.length
+      ? upcomingAppts.map(a => `<div style="font-size:11px;color:var(--accent)">📅 ${a.date}${a.time ? ` @ ${pad4Time(a.time)}` : ""} — ${a.reason || ""} <span style="color:var(--muted)">(${a.location || ""})</span></div>`).join("")
+      : `<div style="font-size:11px;color:var(--dim)">No physio appointment scheduled yet.</div>`;
+
+    const injuryLine = c.latestInjury
+      ? `<div style="font-size:12px"><span style="color:var(--muted)">Injury:</span> ${c.latestInjury.description || ""}</div>`
+      : `<div style="font-size:12px;color:var(--dim)">No injury description on file.</div>`;
+
+    const exercises = c.orderedExercises.length
+      ? `<div style="margin-top:6px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Exercises logged (${c.orderedExercises.length})</div>${c.orderedExercises.map(e => {
+          const d = e.physioDate || e.timestamp || "";
+          return `<div style="font-size:11px;padding:4px 6px;background:var(--bg);border-left:2px solid var(--teal);margin-bottom:3px"><span class="mono" style="color:var(--muted);font-size:10px">${d}</span> — ${e.exercises || ""}</div>`;
+        }).join("")}</div>`
+      : `<div style="font-size:11px;color:var(--dim);margin-top:6px">No physio exercises logged yet.</div>`;
+
+    return `<div class="card" style="padding:12px;${faded ? 'opacity:.55;' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div onclick="openPerson('${c.d4}')" style="cursor:pointer;font-weight:700">${displayId(c.d4) ? `<span class="mono" style="color:var(--accent);margin-right:6px">${displayId(c.d4)}</span>` : ""}${displayPersonLabel(c.d4)} <span class="badge badge-pink" style="font-size:9px;margin-left:4px">🦵 MSK</span></div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn" style="font-size:10px;padding:3px 8px" onclick="openAppointmentForm(null, {d4:'${c.d4}', reason:'Physio review', location:'Physio Centre'})" title="Book a physio appointment for this recruit">📅 Book</button>
+          <button class="btn ${c.allCleared ? 'btn-success' : ''}" style="font-size:10px;padding:3px 8px" onclick="toggleMSKCleared('${c.d4}')" title="${c.allCleared ? 'Reopen this case' : 'Mark this case cleared (hides from active list)'}">${c.allCleared ? '↺ Reopen' : '✓ Mark Cleared'}</button>
+        </div>
+      </div>
+      ${injuryLine}
+      ${apptLine}
+      ${exercises}
+    </div>`;
+  };
+
+  const activeCards = active.length
+    ? `<div style="display:flex;flex-direction:column;gap:10px">${active.map(c => renderCard(c, false)).join("")}</div>`
+    : `<div class="empty-state" style="padding:12px;font-size:11px">No active MSK cases.</div>`;
+
+  const clearedSection = cleared.length
+    ? `<div style="margin-top:12px"><button class="btn" style="font-size:11px" onclick="toggleMSKShowCleared()">${_mskShowCleared ? "▾ Hide" : "▸ Show"} cleared (${cleared.length})</button>${_mskShowCleared ? `<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${cleared.map(c => renderCard(c, true)).join("")}</div>` : ""}</div>`
+    : "";
+
+  return `<h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px">🦵 Active MSK Cases <span style="color:var(--dim);font-weight:400">(${active.length}${cleared.length ? ` active · ${cleared.length} cleared` : ""})</span></h3>
+    ${activeCards}
+    ${clearedSection}`;
 }
 
 // Dashboard sub-widgets — kept separate from renderDashboard to keep the main

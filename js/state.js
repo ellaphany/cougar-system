@@ -17,7 +17,7 @@ const STATE = {
   nav: "dashboard",
   apiUrl: APPS_SCRIPT_URL,
   authToken: localStorage.getItem(AUTH_KEY) || "",
-  roster: [], medical: [], attendance: [], ippt: [], rm: [], soc: [], polar: [], conductDetail: [], appointments: [], leave: [],
+  roster: [], medical: [], attendance: [], ippt: [], rm: [], soc: [], polar: [], conductDetail: [], appointments: [], leave: [], msk: [],
   // Global view scope: "" = all. Persisted across reloads so leaving the app
   // mid-task and coming back doesn't blow away the section you were focused on.
   // filterRole adds a third dimension on top of platoon/section — toggles
@@ -33,12 +33,13 @@ const STATE = {
 // rest of the codebase has always used r.id. Mirror the value into r.id at
 // every entry point so callers don't have to think about it. Also strip
 // legacy `conditions` field so it never round-trips back to the sheet.
-// Google Sheets silently strips leading zeros from cells it reads as numbers
-// — so a commander 4D of "0001" round-trips back as "1". Re-pad any 1–3
-// digit numeric value to 4 digits so commander rows still join correctly
-// with medical/leave records that reference d4.
+// Canonicalize a 4D — strip any leading "C" (some sheets store recruit IDs
+// as "C1101" rather than "1101"), then re-pad 1–3 digit numeric values to
+// 4 digits so commander IDs like "0001" survive Google Sheets stripping
+// the leading zeros. Output is always digit-only, never C-prefixed, so all
+// layers join cleanly via `d4`.
 function padD4(d4) {
-  const s = String(d4 ?? "").trim();
+  const s = String(d4 ?? "").trim().replace(/^C/i, "");
   if (/^\d{1,3}$/.test(s)) return s.padStart(4, "0");
   return s;
 }
@@ -88,12 +89,41 @@ function padD4OnLayer(records) {
   return (records || []).map(r => r && r.d4 != null ? { ...r, d4: padD4(r.d4) } : r);
 }
 
+// MSK records arrive from a Google Form that writes verbose column headers
+// ("4D (e.g. C1234)", "Injury Description", "List of Exercises Given …").
+// Apps Script readTab uses those headers as object keys verbatim, so we
+// translate to short, stable keys here. Also strips any leading "C" on
+// the 4D (the form column prompts for "C1234"-style input) and pads to
+// 4 digits in case Sheets stripped a leading zero.
+function normalizeMSK(records) {
+  const pick = (r, ...keys) => {
+    for (const k of keys) {
+      const v = r[k];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return "";
+  };
+  return (records || []).map(r => {
+    const rawD4 = String(pick(r, "4D (e.g. C1234)", "4D", "d4")).trim().replace(/^C/i, "");
+    const clearedRaw = pick(r, "Cleared", "cleared");
+    return {
+      timestamp: pick(r, "Timestamp", "timestamp"),
+      d4: padD4(rawD4),
+      type: pick(r, "Type", "type"),
+      description: pick(r, "Injury Description", "description", "Description"),
+      physioDate: pick(r, "Date of Physio Visit", "physioDate", "PhysioDate"),
+      exercises: pick(r, "List of Exercises Given (names of exercises)", "exercises", "Exercises"),
+      cleared: clearedRaw === true || String(clearedRaw).toUpperCase() === "TRUE"
+    };
+  });
+}
+
 function saveLocal() {
   const d = {
     roster: STATE.roster, medical: STATE.medical, attendance: STATE.attendance,
     ippt: STATE.ippt, rm: STATE.rm, soc: STATE.soc, polar: STATE.polar,
     conductDetail: STATE.conductDetail, appointments: STATE.appointments,
-    leave: STATE.leave
+    leave: STATE.leave, msk: STATE.msk
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
 }
@@ -116,6 +146,7 @@ function loadLocal() {
     STATE.conductDetail = padD4OnLayer(d.conductDetail);
     STATE.appointments = padD4OnLayer(d.appointments);
     STATE.leave = padD4OnLayer(d.leave);
+    STATE.msk = normalizeMSK(d.msk);
   } catch { /* fall through to empty state */ }
 }
 

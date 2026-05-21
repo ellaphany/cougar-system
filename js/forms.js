@@ -143,6 +143,40 @@ function openPerson(d4) {
     }).join("");
   }
 
+  // ── MSK / Physio section ─────────────────────────────
+  // Self-reported via Google Form (separate from medical layer). Shows
+  // injury reports + exercise log timeline + whether the case is currently
+  // cleared. Helps a sergeant get the full physio picture in one glance.
+  const mskRows = STATE.msk.filter(m => m.d4 === d4);
+  if (mskRows.length) {
+    const tsOf = r => String(r.timestamp || "");
+    const injuries = mskRows.filter(r => (r.type || "").toLowerCase().includes("report"))
+      .sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1);
+    const exercises = mskRows.filter(r => (r.type || "").toLowerCase().includes("log") || (r.type || "").toLowerCase().includes("exercise"))
+      .sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1);
+    const allCleared = mskRows.every(r => r.cleared);
+    const clearedBadge = allCleared
+      ? ` <span class="badge badge-green" style="font-size:9px">CLEARED</span>`
+      : ` <span class="badge badge-pink" style="font-size:9px">ACTIVE</span>`;
+    html += `<h4 style="font-size:12px;color:var(--muted);margin:16px 0 8px">🦵 MSK / Physio <span style="color:var(--dim);font-weight:400">(${mskRows.length} record${mskRows.length === 1 ? '' : 's'})</span>${clearedBadge}</h4>`;
+    if (injuries.length) {
+      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Injury reports</div>`;
+      html += injuries.map(r => {
+        // Apps Script already formats Date cells as "21 May 2026" — use
+        // as-is. Slicing was truncating the last digit of the year.
+        const t = r.timestamp || "";
+        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--pink);font-size:12px"><div style="color:var(--muted);font-size:10px">${t}</div>${r.description || ""}</div>`;
+      }).join("");
+    }
+    if (exercises.length) {
+      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px">Exercises logged</div>`;
+      html += exercises.map(r => {
+        const d = r.physioDate || r.timestamp || "";
+        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--teal);font-size:12px"><div style="color:var(--muted);font-size:10px">${d}</div>${r.exercises || ""}</div>`;
+      }).join("");
+    }
+  }
+
   // ── Polar metrics section ────────────────────────────
   if (computed.length) {
     // Color thresholds: HR ranges follow the existing Polar table convention.
@@ -749,14 +783,17 @@ function submitConductDetail() {
   if (!editId && STATE.apiUrl) API.appendRow("ConductDetail", entry).catch(() => {});
 }
 
-function openAppointmentForm(id) {
-  const e = id ? STATE.appointments.find(x => x.id === id) : null;
-  const dateVal = e ? displayDateToISO(e.date) || todayISO() : todayISO();
-  openModal(e ? "Edit Appointment" : "Book Appointment", `
+function openAppointmentForm(id, prefill) {
+  // `prefill` is only honored when not editing — used by the MSK widget's
+  // Book button to pre-populate d4/reason/location without typing.
+  const isEdit = !!id;
+  const e = isEdit ? STATE.appointments.find(x => x.id === id) : (prefill || null);
+  const dateVal = e?.date ? (displayDateToISO(e.date) || todayISO()) : todayISO();
+  openModal(isEdit ? "Edit Appointment" : "Book Appointment", `
     <form onsubmit="event.preventDefault(); submitAppointment(); return false">
-      <input type="hidden" id="f-entry-id" value="${e ? e.id : ""}">
+      <input type="hidden" id="f-entry-id" value="${isEdit ? e.id : ""}">
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${e ? editHint : ""}
+        ${isEdit ? editHint : ""}
         <div class="form-group"><label>Recruit</label>${rosterSelect("f-d4", true, e?.d4 || "")}</div>
         ${formField("f-reason", "Reason", "text", "Knee specialist review / IPPT retake / Board…", `required maxlength="200" value="${escapeAttr(e?.reason)}"`)}
         <div class="form-row">
@@ -768,7 +805,7 @@ function openAppointmentForm(id) {
           <input id="f-resolved" type="checkbox" ${e?.resolved ? "checked" : ""} style="width:16px;height:16px;cursor:pointer">
           Mark as resolved (hides from dashboard + parade state)
         </label>
-        <button type="submit" class="btn btn-primary">${e ? "Save" : "Book"}</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? "Save" : "Book"}</button>
       </div>
     </form>`);
 }
@@ -792,6 +829,26 @@ function submitAppointment() {
   }
   saveLocal(); closeModal(); render();
   if (!editId && STATE.apiUrl) API.appendRow("Appointments", entry).catch(() => {});
+}
+
+// Toggle clearance on every MSK row for a recruit. Acts as case-level
+// clear: if ANY row is still un-cleared we mark them all cleared; if
+// they're all already cleared we flip back to active (un-clear). Lets
+// sergeants reverse mistakes without going to the sheet.
+function toggleMSKCleared(d4) {
+  const rows = STATE.msk.filter(m => m.d4 === d4);
+  if (!rows.length) return;
+  const allCleared = rows.every(m => m.cleared);
+  rows.forEach(m => { m.cleared = !allCleared; });
+  saveLocal(); render();
+}
+
+// Module-scope toggle for the MSK widget's "Show cleared" reveal. Kept
+// here so it survives re-renders of the dashboard.
+let _mskShowCleared = false;
+function toggleMSKShowCleared() {
+  _mskShowCleared = !_mskShowCleared;
+  render();
 }
 
 // Inline tick from the dashboard widget — flips the resolved bit. The
@@ -1195,6 +1252,7 @@ function importBackup(input) {
     if (d.conductDetail) STATE.conductDetail = d.conductDetail;
     if (d.appointments) STATE.appointments = d.appointments;
     if (d.leave) STATE.leave = d.leave;
+    if (d.msk) STATE.msk = d.msk;
     saveLocal(); render();
   } catch (err) { alert("Import failed: " + err.message); } };
   reader.readAsText(input.files[0]); input.value = "";
