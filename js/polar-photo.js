@@ -51,7 +51,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20251001',
         max_tokens: 1000,
         system: `You are an assistant helping a Singapore Army company analyse fitness class photos.
 4D numbers are in the format C followed by 4 digits (e.g. C1101).
