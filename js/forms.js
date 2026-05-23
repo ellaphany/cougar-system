@@ -884,7 +884,7 @@ function openMSKRegionMenu(d4) {
       <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.55">
         Pick the body regions this recruit's injury affects. Overrides the auto-classifier. Push to Sheet to persist.
       </div>
-      <div id="msk-region-list" style="display:grid;grid-template-columns:1fr 1fr;gap:4px">${options}</div>
+      <div id="msk-region-list" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:4px">${options}</div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn" onclick="closeModal()">Cancel</button>
         <button class="btn btn-primary" style="flex:1" onclick="saveMSKRegionMenu('${d4}')">Save tags</button>

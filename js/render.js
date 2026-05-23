@@ -451,15 +451,15 @@ function renderMSKAnalytics(el) {
 
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-      <div>
+      <div style="min-width:0;flex:1 1 200px">
         <h2 style="font-size:18px;font-weight:700">📊 MSK Analytics${isFilterActive() ? ` <span style="color:var(--accent);font-size:13px">[${filterLabel()}]</span>` : ""}</h2>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">Musculoskeletal injuries — sourced from MSK form reports + conduct detail rows filtered by injury keywords.</div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;font-size:11px">
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px;flex-wrap:wrap;flex:1 1 220px;justify-content:flex-end">
         <span style="color:var(--muted)">Window:</span>
-        <input id="msk-an-start" type="date" value="${startIso}" onchange="setMSKAnalyticsRange()" class="topbar-select">
+        <input id="msk-an-start" type="date" value="${startIso}" onchange="setMSKAnalyticsRange()" class="topbar-select" style="min-width:130px;flex:1 1 130px">
         <span style="color:var(--muted)">→</span>
-        <input id="msk-an-end" type="date" value="${endIso}" onchange="setMSKAnalyticsRange()" class="topbar-select">
+        <input id="msk-an-end" type="date" value="${endIso}" onchange="setMSKAnalyticsRange()" class="topbar-select" style="min-width:130px;flex:1 1 130px">
       </div>
     </div>
 
@@ -502,11 +502,11 @@ function renderMSKAnalytics(el) {
       ${reportRows.length ? `<div style="display:flex;flex-direction:column;gap:4px">
         ${reportRows.sort((a, b) => (a.timestamp || "") < (b.timestamp || "") ? 1 : -1).map(r => {
           const regions = getMSKRegionsForRecruit(r.d4);
-          return `<div onclick="openMSKRegionMenu('${r.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(r.d4)}</span>
-            <span style="font-weight:600;min-width:140px">${displayPersonLabel(r.d4)}</span>
-            <span style="flex:1;min-width:120px;color:var(--muted)">${r.description || ""}</span>
-            <span>${regions.map(regionChip).join("")}</span>
+          return `<div onclick="openMSKRegionMenu('${r.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="mono" style="color:var(--accent);font-weight:700">${displayId(r.d4)}</span>
+            <span style="font-weight:600">${displayPersonLabel(r.d4)}</span>
+            <span style="flex:1 1 200px;min-width:0;color:var(--muted)">${r.description || ""}</span>
+            <span style="display:flex;flex-wrap:wrap;gap:3px">${regions.map(regionChip).join("")}</span>
           </div>`;
         }).join("")}
       </div>` : `<div style="color:var(--muted);font-size:12px">No injury reports in this window.</div>`}
@@ -516,15 +516,15 @@ function renderMSKAnalytics(el) {
       <h3>Most Affected Personnel</h3>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Ranked by MSK-related conduct detail entries (PX / Fallout / RSI).</div>
       ${ranked.length ? `<div style="display:flex;flex-direction:column;gap:4px">
-        ${ranked.map((p, i) => `<div onclick="openPerson('${p.d4}')" style="cursor:pointer;font-size:11px;padding:6px 8px;background:var(--surface2);border-radius:4px;display:flex;align-items:center;gap:10px">
+        ${ranked.map((p, i) => `<div onclick="openPerson('${p.d4}')" style="cursor:pointer;font-size:11px;padding:6px 8px;background:var(--surface2);border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="color:var(--orange);font-weight:700;min-width:22px;text-align:right">${i + 1}</span>
-          <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(p.d4)}</span>
-          <span style="flex:1">${displayPersonLabel(p.d4)}</span>
-          <div style="flex:0 0 200px;height:14px;background:var(--bg);border-radius:3px;position:relative;overflow:hidden">
+          <span class="mono" style="color:var(--accent);font-weight:700">${displayId(p.d4)}</span>
+          <span style="flex:1 1 110px;min-width:0">${displayPersonLabel(p.d4)}</span>
+          <div style="flex:2 1 140px;min-width:80px;height:14px;background:var(--bg);border-radius:3px;position:relative;overflow:hidden">
             <div style="position:absolute;inset:0 ${100 - (p.count / maxRanked) * 100}% 0 0;background:linear-gradient(90deg, var(--accent), var(--teal));opacity:.7"></div>
             <span style="position:absolute;left:6px;top:0;font-size:10px;font-weight:600;line-height:14px">${p.count}</span>
           </div>
-          <span style="font-size:10px;color:var(--muted);min-width:70px;text-align:right">${[...p.types].join(", ")}</span>
+          <span style="font-size:10px;color:var(--muted);text-align:right">${[...p.types].join(", ")}</span>
         </div>`).join("")}
       </div>` : `<div style="color:var(--muted);font-size:12px">No MSK log entries in this window.</div>`}
     </div>
@@ -533,11 +533,11 @@ function renderMSKAnalytics(el) {
       <h3>🚨 Chronic / Recurring Cases <span style="color:var(--dim);font-weight:400;font-size:11px">(${chronic.length})</span></h3>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Recruits with a reported injury AND ≥3 MSK conduct entries — needs ongoing attention.</div>
       <div style="display:flex;flex-direction:column;gap:6px">
-        ${chronic.map(c => `<div onclick="openPerson('${c.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;border-left:3px solid ${MSK_REGION_COLORS[c.regions[0]] || MSK_REGION_COLORS.Other};display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(c.d4)}</span>
-          <span style="flex:1;min-width:120px">${displayPersonLabel(c.d4)}</span>
+        ${chronic.map(c => `<div onclick="openPerson('${c.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;border-left:3px solid ${MSK_REGION_COLORS[c.regions[0]] || MSK_REGION_COLORS.Other};display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="mono" style="color:var(--accent);font-weight:700">${displayId(c.d4)}</span>
+          <span style="flex:1 1 140px;min-width:0">${displayPersonLabel(c.d4)}</span>
           <span class="mono" style="color:var(--red);font-weight:700">${c.count}× missed</span>
-          <span>${c.regions.map(regionChip).join("")}</span>
+          <span style="display:flex;flex-wrap:wrap;gap:3px">${c.regions.map(regionChip).join("")}</span>
         </div>`).join("")}
       </div>
     </div>` : ""}
@@ -605,6 +605,9 @@ function renderMSKAnalytics(el) {
         if (e.native) e.native.target.style.cursor = elements.length ? "pointer" : "default";
       };
 
+      // Mobile: legend below the donut (right-side legend leaves no room
+      // for the donut itself on narrow screens). Desktop: keep on right.
+      const isMobile = window.innerWidth <= 768;
       _mskAnalyticsCharts.donut = new Chart(document.getElementById("msk-region-donut"), {
         type: "doughnut",
         data: { labels: regionCounts.map(r => r.region), datasets: [{ data: regionCounts.map(r => r.count), backgroundColor: regionCounts.map(r => MSK_REGION_COLORS[r.region] || MSK_REGION_COLORS.Other), borderWidth: 3, borderColor: "#161B22", hoverOffset: 8 }] },
@@ -613,7 +616,7 @@ function renderMSKAnalytics(el) {
           cutout: "62%",
           onClick: drillOnClick, onHover: cursorOnHover,
           plugins: {
-            legend: { position: "right", labels: { color: "#E6EDF3", font: { size: 11 }, padding: 10, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+            legend: { position: isMobile ? "bottom" : "right", labels: { color: "#E6EDF3", font: { size: 11 }, padding: 10, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
             tooltip: { backgroundColor: "#161B22", borderColor: "#30363D", borderWidth: 1, padding: 10, cornerRadius: 6, callbacks: { label: c => `${c.label}: ${c.parsed} recruit${c.parsed === 1 ? "" : "s"} (click to drill in)` } }
           }
         }
