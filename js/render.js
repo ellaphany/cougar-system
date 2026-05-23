@@ -32,6 +32,7 @@ function render() {
     case "soc": renderSOC(el); break;
     case "polar": renderPolar(el); break;
     case "leave": renderLeave(el); break;
+    case "mskAnalytics": renderMSKAnalytics(el); break;
     case "sync": renderSync(el); break;
     default: el.innerHTML = "";
   }
@@ -221,6 +222,14 @@ function renderDashMSKCases(visible) {
       ? `<div style="font-size:12px"><span style="color:var(--muted)">Injury:</span> ${c.latestInjury.description || ""}</div>`
       : `<div style="font-size:12px;color:var(--dim)">No injury description on file.</div>`;
 
+    // Body region chips — auto-classified by default, sergeant can re-tag
+    // by clicking the pencil. Stored on the latest Report Injury row.
+    const regions = c.latestInjury ? getMSKRegionsForRecruit(c.d4) : [];
+    const regionsLine = c.latestInjury ? `<div style="margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+      ${regions.map(reg => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other}22;color:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other}">${reg}</span>`).join("")}
+      <button class="btn btn-icon" onclick="event.stopPropagation(); openMSKRegionMenu('${c.d4}')" title="Re-tag body regions" style="font-size:9px;padding:1px 6px">✎ tag</button>
+    </div>` : "";
+
     const exercises = c.orderedExercises.length
       ? `<div style="margin-top:6px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Physio visits (${c.orderedExercises.length})</div>${c.orderedExercises.map(e => {
           const d = e.physioDate || e.timestamp || "";
@@ -238,22 +247,398 @@ function renderDashMSKCases(visible) {
         </div>
       </div>
       ${injuryLine}
+      ${regionsLine}
       ${apptLine}
       ${exercises}
     </div>`;
   };
 
+  // Scrollable container — caps height so the MSK section doesn't push
+  // the rest of the dashboard off-screen as cases accumulate. About 3
+  // cards visible at a time; scroll for more.
   const activeCards = active.length
-    ? `<div style="display:flex;flex-direction:column;gap:10px">${active.map(c => renderCard(c, false)).join("")}</div>`
+    ? `<div style="max-height:560px;overflow-y:auto;padding-right:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><div style="display:flex;flex-direction:column;gap:10px;padding:10px">${active.map(c => renderCard(c, false)).join("")}</div></div>`
     : `<div class="empty-state" style="padding:12px;font-size:11px">No active MSK cases.</div>`;
 
   const clearedSection = cleared.length
-    ? `<div style="margin-top:12px"><button class="btn" style="font-size:11px" onclick="toggleMSKShowCleared()">${_mskShowCleared ? "▾ Hide" : "▸ Show"} cleared (${cleared.length})</button>${_mskShowCleared ? `<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${cleared.map(c => renderCard(c, true)).join("")}</div>` : ""}</div>`
+    ? `<div style="margin-top:12px"><button class="btn" style="font-size:11px" onclick="toggleMSKShowCleared()">${_mskShowCleared ? "▾ Hide" : "▸ Show"} cleared (${cleared.length})</button>${_mskShowCleared ? `<div style="max-height:400px;overflow-y:auto;padding-right:6px;margin-top:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><div style="display:flex;flex-direction:column;gap:10px;padding:10px">${cleared.map(c => renderCard(c, true)).join("")}</div></div>` : ""}</div>`
     : "";
 
-  return `<h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px">🦵 Active MSK Cases <span style="color:var(--dim);font-weight:400">(${active.length}${cleared.length ? ` active · ${cleared.length} cleared` : ""})</span></h3>
+  return `<h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px">🦵 Active MSK Cases <span style="color:var(--dim);font-weight:400">(${active.length}${cleared.length ? ` active · ${cleared.length} cleared` : ""}) <span style="font-size:10px;font-style:italic;color:var(--dim)">— scroll to see all</span></span></h3>
     ${activeCards}
     ${clearedSection}`;
+}
+
+// ── MSK ANALYTICS PAGE ───────────────────────────────────
+// Full-page injury aggregation: daily impact, region breakdown, most-
+// affected personnel. Answers the CO's "how many injured and what kind?"
+// at a glance. Date range pickers default to last 14 days; topbar scope
+// filter narrows the population.
+let _mskAnalyticsStart = "";
+let _mskAnalyticsEnd = "";
+const _mskAnalyticsCharts = {};
+
+function setMSKAnalyticsRange() {
+  _mskAnalyticsStart = gv("msk-an-start");
+  _mskAnalyticsEnd = gv("msk-an-end");
+  render();
+}
+
+// Drill-in: show all recruits currently classified under a body region,
+// with the underlying source text (Form report + conductDetail reasons)
+// so the sergeant can see WHY each one landed there. Especially useful
+// for the "Other" bucket — surfaces injuries the auto-classifier couldn't
+// tag, with a one-click Re-tag button to fix manually.
+function viewMSKRegion(region) {
+  const startIso = _mskAnalyticsStart;
+  const endIso = _mskAnalyticsEnd;
+  const visible = visibleD4Set();
+
+  const inWindowReport = m => {
+    if ((m.type || "").toLowerCase().indexOf("report") < 0) return false;
+    if (!passesFilter(m.d4, visible)) return false;
+    const iso = displayDateToISO(m.timestamp) || String(m.timestamp || "").slice(0, 10);
+    return iso && iso >= startIso && iso <= endIso;
+  };
+  const inWindowCD = c => {
+    if (!passesFilter(c.d4, visible)) return false;
+    const iso = displayDateToISO(c.date);
+    return iso && iso >= startIso && iso <= endIso && isMSKReason(c.reason);
+  };
+
+  // All d4s ever affected in this window
+  const affectedD4s = new Set([
+    ...STATE.msk.filter(inWindowReport).map(m => m.d4),
+    ...STATE.conductDetail.filter(inWindowCD).map(c => c.d4)
+  ]);
+
+  // Keep only those whose resolved regions include this one
+  const matching = [...affectedD4s].filter(d4 => getMSKRegionsForRecruit(d4).includes(region));
+
+  // Gather source text per recruit so sergeant can see WHY they were classified.
+  const cards = matching.map(d4 => {
+    const reports = STATE.msk.filter(m => m.d4 === d4 && (m.type || "").toLowerCase().includes("report"));
+    const cdRows = STATE.conductDetail.filter(c => c.d4 === d4 && isMSKReason(c.reason));
+    const hasManual = reports.some(r => r.manualRegions && String(r.manualRegions).trim());
+    const sources = [
+      ...reports.map(r => ({ kind: "Form report", text: r.description || "—", color: "#E97BC2" })),
+      ...cdRows.map(c => ({ kind: c.type, text: c.reason || "—", color: c.type === "PX" ? "#5B8DEF" : c.type === "Fallout" ? "#E8573A" : "#F2A93B" }))
+    ];
+    const allRegions = getMSKRegionsForRecruit(d4);
+    return { d4, sources, allRegions, hasManual };
+  });
+
+  const regionChipsHtml = regs => regs.map(reg => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other}22;color:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other}">${reg}</span>`).join(" ");
+
+  const body = `
+    <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;line-height:1.55">
+      <strong style="color:${MSK_REGION_COLORS[region]}">${region}</strong> — ${matching.length} recruit${matching.length === 1 ? "" : "s"} classified${region === "Other" ? ". 'Other' means the keyword classifier couldn't tag them automatically — click <strong>Re-tag</strong> to fix manually." : ". Sources below show why each recruit was tagged."}
+    </div>
+    ${cards.length ? `<div style="display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto;padding-right:4px">
+      ${cards.map(c => `<div style="padding:10px 12px;background:var(--surface2);border-radius:6px;border-left:3px solid ${MSK_REGION_COLORS[region]}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="mono" style="color:var(--accent);font-weight:700">${displayId(c.d4)}</span>
+            <span style="font-weight:600">${displayPersonLabel(c.d4)}</span>
+            ${c.hasManual ? '<span style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.5px">Manual override</span>' : ""}
+          </div>
+          <button class="btn" style="font-size:10px;padding:3px 8px" onclick="openMSKRegionMenu('${c.d4}')">✎ Re-tag</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Source text</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${c.sources.length ? c.sources.map(s => `<div style="font-size:11px;padding:4px 8px;background:var(--bg);border-left:2px solid ${s.color};border-radius:3px"><span style="color:${s.color};font-weight:600;font-size:10px">[${s.kind}]</span> ${s.text}</div>`).join("") : `<div style="font-size:11px;color:var(--dim)">No source text on file.</div>`}
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--muted)">All regions: ${regionChipsHtml(c.allRegions)}</div>
+      </div>`).join("")}
+    </div>` : `<div class="empty-state" style="padding:12px;font-size:12px">No recruits classified under this region in the current window.</div>`}
+  `;
+
+  openModal(`Region drill-in — ${region}`, body);
+  document.querySelector(".modal")?.classList.add("wide");
+}
+
+function renderMSKAnalytics(el) {
+  const today = todayISO();
+  if (!_mskAnalyticsStart) {
+    const d = new Date(today); d.setDate(d.getDate() - 13);
+    _mskAnalyticsStart = d.toISOString().slice(0, 10);
+  }
+  if (!_mskAnalyticsEnd) _mskAnalyticsEnd = today;
+  const startIso = _mskAnalyticsStart;
+  const endIso = _mskAnalyticsEnd;
+
+  // Scope: respect topbar role/platoon filter for which d4s count.
+  const visible = visibleD4Set();
+
+  // Build the date axis (every day from start to end inclusive).
+  const dates = [];
+  {
+    const d0 = new Date(startIso), d1 = new Date(endIso);
+    for (let d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  }
+  const dateLabels = dates.map(iso => {
+    const d = new Date(iso);
+    return `${d.getDate()}/${d.getMonth() + 1}`;
+  });
+
+  // Filter conductDetail to MSK-only rows in scope + window.
+  const mskConductRows = STATE.conductDetail.filter(c => {
+    if (!passesFilter(c.d4, visible)) return false;
+    const iso = displayDateToISO(c.date);
+    if (!iso || iso < startIso || iso > endIso) return false;
+    return isMSKReason(c.reason);
+  });
+
+  // Daily aggregation — unique d4s per type per day.
+  const daily = dates.map(iso => {
+    const dayRows = mskConductRows.filter(c => displayDateToISO(c.date) === iso);
+    const px = new Set(dayRows.filter(c => c.type === "PX").map(c => c.d4));
+    const fo = new Set(dayRows.filter(c => c.type === "Fallout").map(c => c.d4));
+    const rsi = new Set(dayRows.filter(c => c.type === "RSI").map(c => c.d4));
+    const total = new Set([...px, ...fo, ...rsi]);
+    return { iso, px: px.size, fo: fo.size, rsi: rsi.size, total: total.size };
+  });
+
+  // Injury reports (STATE.msk type=Report Injury) in scope + window.
+  const reportRows = STATE.msk.filter(m => {
+    if ((m.type || "").toLowerCase().indexOf("report") < 0) return false;
+    if (!passesFilter(m.d4, visible)) return false;
+    const iso = displayDateToISO(m.timestamp) || String(m.timestamp || "").slice(0, 10);
+    return iso && iso >= startIso && iso <= endIso;
+  });
+  // Unique injured personnel — union of Form reporters AND recruits who
+  // appeared in MSK-classified conductDetail rows in this window. Closes
+  // the gap where someone who falls out due to MSK at PT but never fills
+  // the Form would be missing from the region breakdown.
+  const injuredD4s = new Set([
+    ...reportRows.map(r => r.d4),
+    ...mskConductRows.map(c => c.d4)
+  ]);
+
+  // Region counts — unique recruits per region. Manual override wins.
+  // getMSKRegionsForRecruit now also unions in regions derived from
+  // conductDetail reasons, so no recruit gets dropped silently.
+  const regionToRecruits = {};
+  injuredD4s.forEach(d4 => {
+    const regions = getMSKRegionsForRecruit(d4);
+    regions.forEach(reg => {
+      (regionToRecruits[reg] = regionToRecruits[reg] || new Set()).add(d4);
+    });
+  });
+  const regionCounts = Object.entries(regionToRecruits)
+    .map(([region, set]) => ({ region, count: set.size }))
+    .sort((a, b) => b.count - a.count);
+
+  // Personnel frequency from conductDetail (entries, not unique conducts).
+  const freq = {};
+  mskConductRows.forEach(c => {
+    if (!freq[c.d4]) freq[c.d4] = { d4: c.d4, count: 0, types: new Set() };
+    freq[c.d4].count++;
+    freq[c.d4].types.add(c.type);
+  });
+  const ranked = Object.values(freq).sort((a, b) => b.count - a.count).slice(0, 15);
+  const maxRanked = ranked[0]?.count || 1;
+
+  // Chronic = has Report Injury AND ≥3 MSK conductDetail entries.
+  const chronic = [...injuredD4s]
+    .filter(d4 => (freq[d4]?.count || 0) >= 3)
+    .map(d4 => ({ d4, count: freq[d4].count, regions: getMSKRegionsForRecruit(d4) }))
+    .sort((a, b) => b.count - a.count);
+
+  const regionChip = reg => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other}22;color:${MSK_REGION_COLORS[reg] || MSK_REGION_COLORS.Other};margin-right:3px">${reg}</span>`;
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div>
+        <h2 style="font-size:18px;font-weight:700">📊 MSK Analytics${isFilterActive() ? ` <span style="color:var(--accent);font-size:13px">[${filterLabel()}]</span>` : ""}</h2>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Musculoskeletal injuries — sourced from MSK form reports + conduct detail rows filtered by injury keywords.</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px">
+        <span style="color:var(--muted)">Window:</span>
+        <input id="msk-an-start" type="date" value="${startIso}" onchange="setMSKAnalyticsRange()" class="topbar-select">
+        <span style="color:var(--muted)">→</span>
+        <input id="msk-an-end" type="date" value="${endIso}" onchange="setMSKAnalyticsRange()" class="topbar-select">
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat"><label>Injured personnel</label><div class="val" style="color:var(--red)">${injuredD4s.size}</div></div>
+      <div class="stat"><label>MSK log entries</label><div class="val" style="color:var(--orange)">${mskConductRows.length}</div></div>
+      <div class="stat"><label>Injury regions</label><div class="val" style="color:var(--accent)">${regionCounts.length}</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h3>Daily MSK Impact</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.55">
+        Unique personnel affected per day, MSK cases only. Stacked by category:<br>
+        <span style="color:#5B8DEF;font-weight:600">■ PX</span> = Status personnel (excused with MO status before the conduct) ·
+        <span style="color:#E8573A;font-weight:600">■ Fallout</span> = dropped out during the conduct ·
+        <span style="color:#F2A93B;font-weight:600">■ RSI</span> = reported sick at first parade
+      </div>
+      <div class="chart-box tall"><canvas id="msk-daily-bar"></canvas></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h3>Total Affected Trend</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Unique MSK cases per day across all types.</div>
+      <div class="chart-box"><canvas id="msk-trend-line"></canvas></div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:14px">
+      <div class="card">
+        <h3>Injuries by Region <span style="color:var(--dim);font-weight:400;font-size:10px">— click any slice to drill in</span></h3>
+        <div class="chart-box"><canvas id="msk-region-donut"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Personnel per Region <span style="color:var(--dim);font-weight:400;font-size:10px">— click any bar to drill in</span></h3>
+        <div class="chart-box"><canvas id="msk-region-bar"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h3>Reported Injuries Detail <span style="color:var(--dim);font-weight:400;font-size:11px">(${reportRows.length})</span></h3>
+      ${reportRows.length ? `<div style="display:flex;flex-direction:column;gap:4px">
+        ${reportRows.sort((a, b) => (a.timestamp || "") < (b.timestamp || "") ? 1 : -1).map(r => {
+          const regions = getMSKRegionsForRecruit(r.d4);
+          return `<div onclick="openMSKRegionMenu('${r.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(r.d4)}</span>
+            <span style="font-weight:600;min-width:140px">${displayPersonLabel(r.d4)}</span>
+            <span style="flex:1;min-width:120px;color:var(--muted)">${r.description || ""}</span>
+            <span>${regions.map(regionChip).join("")}</span>
+          </div>`;
+        }).join("")}
+      </div>` : `<div style="color:var(--muted);font-size:12px">No injury reports in this window.</div>`}
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h3>Most Affected Personnel</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Ranked by MSK-related conduct detail entries (PX / Fallout / RSI).</div>
+      ${ranked.length ? `<div style="display:flex;flex-direction:column;gap:4px">
+        ${ranked.map((p, i) => `<div onclick="openPerson('${p.d4}')" style="cursor:pointer;font-size:11px;padding:6px 8px;background:var(--surface2);border-radius:4px;display:flex;align-items:center;gap:10px">
+          <span style="color:var(--orange);font-weight:700;min-width:22px;text-align:right">${i + 1}</span>
+          <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(p.d4)}</span>
+          <span style="flex:1">${displayPersonLabel(p.d4)}</span>
+          <div style="flex:0 0 200px;height:14px;background:var(--bg);border-radius:3px;position:relative;overflow:hidden">
+            <div style="position:absolute;inset:0 ${100 - (p.count / maxRanked) * 100}% 0 0;background:linear-gradient(90deg, var(--accent), var(--teal));opacity:.7"></div>
+            <span style="position:absolute;left:6px;top:0;font-size:10px;font-weight:600;line-height:14px">${p.count}</span>
+          </div>
+          <span style="font-size:10px;color:var(--muted);min-width:70px;text-align:right">${[...p.types].join(", ")}</span>
+        </div>`).join("")}
+      </div>` : `<div style="color:var(--muted);font-size:12px">No MSK log entries in this window.</div>`}
+    </div>
+
+    ${chronic.length ? `<div class="card">
+      <h3>🚨 Chronic / Recurring Cases <span style="color:var(--dim);font-weight:400;font-size:11px">(${chronic.length})</span></h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Recruits with a reported injury AND ≥3 MSK conduct entries — needs ongoing attention.</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${chronic.map(c => `<div onclick="openPerson('${c.d4}')" style="cursor:pointer;font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:6px;border-left:3px solid ${MSK_REGION_COLORS[c.regions[0]] || MSK_REGION_COLORS.Other};display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="mono" style="color:var(--accent);font-weight:700;min-width:42px">${displayId(c.d4)}</span>
+          <span style="flex:1;min-width:120px">${displayPersonLabel(c.d4)}</span>
+          <span class="mono" style="color:var(--red);font-weight:700">${c.count}× missed</span>
+          <span>${c.regions.map(regionChip).join("")}</span>
+        </div>`).join("")}
+      </div>
+    </div>` : ""}
+  `;
+
+  // Render the charts after the canvases are in the DOM.
+  setTimeout(() => {
+    Object.values(_mskAnalyticsCharts).forEach(c => { try { c.destroy(); } catch (e) {} });
+
+    // Shared axis styling — softer grid, no borders, integer ticks.
+    const axisBase = {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 6, right: 4, bottom: 0, left: 0 } },
+      plugins: {
+        legend: { labels: { color: "#8B949E", font: { size: 11 }, padding: 12, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+        tooltip: { backgroundColor: "#161B22", borderColor: "#30363D", borderWidth: 1, padding: 10, titleColor: "#E6EDF3", bodyColor: "#E6EDF3", cornerRadius: 6, displayColors: true }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { color: "#8B949E", font: { size: 10 }, precision: 0, padding: 6 }, grid: { color: "#30363D55", drawTicks: false }, border: { display: false } },
+        x: { ticks: { color: "#8B949E", font: { size: 10 }, maxRotation: 0, autoSkip: true, padding: 4 }, grid: { display: false }, border: { display: false } }
+      }
+    };
+
+    // Stacked bar — bigger rounded corners on the top of each stack, no
+    // borders. Tooltip shows the per-day breakdown + total.
+    _mskAnalyticsCharts.daily = new Chart(document.getElementById("msk-daily-bar"), {
+      type: "bar",
+      data: { labels: dateLabels, datasets: [
+        { label: "PX (status)",   data: daily.map(d => d.px),  backgroundColor: "#5B8DEF", stack: "a", borderWidth: 0, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.85 },
+        { label: "Fallout",       data: daily.map(d => d.fo),  backgroundColor: "#E8573A", stack: "a", borderWidth: 0, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.85 },
+        { label: "RSI",           data: daily.map(d => d.rsi), backgroundColor: "#F2A93B", stack: "a", borderWidth: 0, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.85 }
+      ] },
+      options: {
+        ...axisBase,
+        plugins: {
+          ...axisBase.plugins,
+          legend: { ...axisBase.plugins.legend, position: "bottom" },
+          tooltip: {
+            ...axisBase.plugins.tooltip,
+            callbacks: {
+              footer: (items) => {
+                const total = items.reduce((s, i) => s + (i.parsed.y || 0), 0);
+                return total ? `Total: ${total}` : "";
+              }
+            }
+          }
+        },
+        scales: { ...axisBase.scales, x: { ...axisBase.scales.x, stacked: true }, y: { ...axisBase.scales.y, stacked: true } }
+      }
+    });
+
+    _mskAnalyticsCharts.trend = new Chart(document.getElementById("msk-trend-line"), {
+      type: "line",
+      data: { labels: dateLabels, datasets: [{ label: "Total affected", data: daily.map(d => d.total), borderColor: "#43C59E", backgroundColor: "#43C59E33", tension: 0.35, fill: true, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: "#43C59E", pointBorderColor: "#0D1117", pointBorderWidth: 2, borderWidth: 2.5 }] },
+      options: { ...axisBase, plugins: { ...axisBase.plugins, legend: { display: false } } }
+    });
+
+    if (regionCounts.length) {
+      // Click handlers: drill into the region. Cursor changes on hover so
+      // it's obvious slices/bars are interactive.
+      const drillOnClick = (e, elements) => {
+        if (elements.length) viewMSKRegion(regionCounts[elements[0].index].region);
+      };
+      const cursorOnHover = (e, elements) => {
+        if (e.native) e.native.target.style.cursor = elements.length ? "pointer" : "default";
+      };
+
+      _mskAnalyticsCharts.donut = new Chart(document.getElementById("msk-region-donut"), {
+        type: "doughnut",
+        data: { labels: regionCounts.map(r => r.region), datasets: [{ data: regionCounts.map(r => r.count), backgroundColor: regionCounts.map(r => MSK_REGION_COLORS[r.region] || MSK_REGION_COLORS.Other), borderWidth: 3, borderColor: "#161B22", hoverOffset: 8 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          cutout: "62%",
+          onClick: drillOnClick, onHover: cursorOnHover,
+          plugins: {
+            legend: { position: "right", labels: { color: "#E6EDF3", font: { size: 11 }, padding: 10, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+            tooltip: { backgroundColor: "#161B22", borderColor: "#30363D", borderWidth: 1, padding: 10, cornerRadius: 6, callbacks: { label: c => `${c.label}: ${c.parsed} recruit${c.parsed === 1 ? "" : "s"} (click to drill in)` } }
+          }
+        }
+      });
+
+      // Horizontal bar — rounded right side, bigger bars, value labels via tooltip.
+      _mskAnalyticsCharts.regionBar = new Chart(document.getElementById("msk-region-bar"), {
+        type: "bar",
+        data: { labels: regionCounts.map(r => r.region), datasets: [{ data: regionCounts.map(r => r.count), backgroundColor: regionCounts.map(r => MSK_REGION_COLORS[r.region] || MSK_REGION_COLORS.Other), borderWidth: 0, borderRadius: 6, borderSkipped: false, barPercentage: 0.7 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: "y",
+          layout: { padding: { top: 4, right: 16, bottom: 0, left: 0 } },
+          onClick: drillOnClick, onHover: cursorOnHover,
+          plugins: {
+            legend: { display: false },
+            tooltip: { backgroundColor: "#161B22", borderColor: "#30363D", borderWidth: 1, padding: 10, cornerRadius: 6, displayColors: false, callbacks: { label: c => `${c.parsed.x} recruit${c.parsed.x === 1 ? "" : "s"} (click to drill in)` } }
+          },
+          scales: {
+            x: { beginAtZero: true, ticks: { color: "#8B949E", font: { size: 10 }, precision: 0, padding: 4 }, grid: { color: "#30363D55", drawTicks: false }, border: { display: false } },
+            y: { ticks: { color: "#E6EDF3", font: { size: 11, weight: "600" }, padding: 6 }, grid: { display: false }, border: { display: false } }
+          }
+        }
+      });
+    }
+  }, 50);
 }
 
 // Dashboard sub-widgets — kept separate from renderDashboard to keep the main

@@ -852,6 +852,57 @@ function toggleMSKShowCleared() {
   render();
 }
 
+// Persist a manual body-region tag list on the recruit's latest Report
+// Injury row. Reading the regions back uses getMSKRegionsForRecruit which
+// prefers manualRegions over the auto-classifier when set.
+function setMSKRegions(d4, regions) {
+  const reports = STATE.msk
+    .filter(m => m.d4 === d4 && (m.type || "").toLowerCase().includes("report"))
+    .sort((a, b) => (a.timestamp || "") < (b.timestamp || "") ? 1 : -1);
+  if (!reports.length) {
+    alert("No injury report on file for this recruit — can't tag regions.");
+    return;
+  }
+  reports[0].manualRegions = regions.join(", ");
+  saveLocal(); render();
+}
+
+// Modal for editing a recruit's body region tags. Pre-checks current
+// regions; on Save, persists via setMSKRegions and re-renders.
+function openMSKRegionMenu(d4) {
+  const current = getMSKRegionsForRecruit(d4);
+  const currentSet = new Set(current);
+  const options = MSK_REGION_LIST.map(r => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;background:${currentSet.has(r) ? MSK_REGION_COLORS[r] + "22" : "var(--surface2)"}">
+      <input type="checkbox" data-region="${escapeAttr(r)}" ${currentSet.has(r) ? "checked" : ""} style="width:14px;height:14px;cursor:pointer">
+      <span style="width:10px;height:10px;border-radius:50%;background:${MSK_REGION_COLORS[r]}"></span>
+      <span style="font-size:12px">${r}</span>
+    </label>`).join("");
+
+  openModal("Tag injury regions — " + displayPersonLabel(d4), `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.55">
+        Pick the body regions this recruit's injury affects. Overrides the auto-classifier. Push to Sheet to persist.
+      </div>
+      <div id="msk-region-list" style="display:grid;grid-template-columns:1fr 1fr;gap:4px">${options}</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" onclick="saveMSKRegionMenu('${d4}')">Save tags</button>
+      </div>
+    </div>`);
+}
+
+function saveMSKRegionMenu(d4) {
+  const checked = [...document.querySelectorAll("#msk-region-list input[type=checkbox]:checked")]
+    .map(el => el.dataset.region);
+  if (!checked.length) {
+    alert("Pick at least one region (or use 'Other' for unclassified).");
+    return;
+  }
+  setMSKRegions(d4, checked);
+  closeModal();
+}
+
 // Inline tick from the dashboard widget — flips the resolved bit. The
 // appointment disappears from dashboard/parade state immediately. To un-
 // resolve, edit the entry via the pencil icon (visible while it's still

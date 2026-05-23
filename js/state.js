@@ -115,6 +115,10 @@ function normalizeMSK(records) {
     // The defensive `^C` strip handles any recruit who still types "C1101".
     const rawD4 = String(pick(r, "4D (e.g. 1101)", "4D (e.g. C1234)", "4D", "d4")).trim().replace(/^C/i, "");
     const clearedRaw = pick(r, "Cleared", "cleared");
+    // manualRegions — comma-separated body region tags set by the dashboard
+    // override UI. Overrides the auto-classifier for analytics. Persists
+    // via pushTab so it round-trips to the MSK sheet on next Push All.
+    const manualRegions = String(pick(r, "manualRegions", "ManualRegions", "Manual Regions") || "").trim();
     return {
       timestamp: pick(r, "Timestamp", "timestamp"),
       d4: padD4(rawD4),
@@ -122,7 +126,8 @@ function normalizeMSK(records) {
       description: pick(r, "Injury Description", "description", "Description"),
       physioDate: pick(r, "Date of Physio Visit", "physioDate", "PhysioDate"),
       exercises: pick(r, "List of Exercises Given (names of exercises)", "exercises", "Exercises"),
-      cleared: clearedRaw === true || String(clearedRaw).toUpperCase() === "TRUE"
+      cleared: clearedRaw === true || String(clearedRaw).toUpperCase() === "TRUE",
+      manualRegions
     };
   });
 }

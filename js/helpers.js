@@ -459,21 +459,33 @@ function isMSKReason(text) {
 }
 
 // Resolves the regions for a recruit's MSK case. Manual override (set via
-// the dashboard MSK card chips) takes precedence over the auto-classifier.
-// Returns [] when the recruit has no Report Injury rows at all.
+// the dashboard MSK card chips) wins. Otherwise unions auto-classified
+// regions from BOTH the recruit's Report Injury rows AND any MSK-filtered
+// conductDetail rows — so a recruit who falls out at PT due to MSK but
+// never submits a Form report still shows up in region analytics with
+// their reason text auto-classified.
 function getMSKRegionsForRecruit(d4) {
   const reports = STATE.msk.filter(m =>
     m.d4 === d4 && (m.type || "").toLowerCase().includes("report")
   );
-  if (!reports.length) return [];
-  // Manual override wins — first non-empty manualRegions on any of this
-  // recruit's report rows.
+
+  // Manual override wins (stored on the Report Injury row, so only
+  // available for recruits who submitted a form).
   const manual = reports.map(r => r.manualRegions).find(v => v && String(v).trim());
   if (manual) {
     return String(manual).split(",").map(s => s.trim()).filter(Boolean);
   }
-  // Else union of auto-classified regions across all this recruit's reports.
+
+  // Else union of auto-classified regions from form descriptions AND
+  // MSK-classified conduct detail reasons for this recruit.
   const regions = new Set();
   reports.forEach(r => classifyInjuryRegions(r.description).forEach(reg => regions.add(reg)));
-  return [...regions];
+  STATE.conductDetail
+    .filter(c => c.d4 === d4 && isMSKReason(c.reason))
+    .forEach(c => classifyInjuryRegions(c.reason).forEach(reg => regions.add(reg)));
+
+  // Strip "Other" if we found anything specific — keeps the region list clean.
+  const result = [...regions];
+  if (result.length > 1) return result.filter(r => r !== "Other");
+  return result;
 }
