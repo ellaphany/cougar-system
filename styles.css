@@ -209,8 +209,11 @@ tr:hover{background:var(--surface2)}
   .topbar-select,select,input{max-width:100%;min-width:0!important}
 
   /* Charts must not overflow their grid cell. Chart.js sizes the canvas
-     based on container width — explicitly clamp it. */
+     based on container width — explicitly clamp it. Also give them a
+     bit more height on mobile so axes/legends don't get cramped. */
   .chart-box,.chart-box canvas{max-width:100%}
+  .chart-box{height:180px}
+  .chart-box.tall{height:220px}
 
   /* Modal body should never scroll horizontally; long text wraps. */
   .modal,.modal *{max-width:100%}

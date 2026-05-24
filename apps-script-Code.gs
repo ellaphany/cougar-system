@@ -51,7 +51,9 @@
  *               (Each row represents a "report sick" event — `date` is the
  *                date the recruit reported sick. status ∈ {MC, Warded, LD,
  *                RMJ, Excuse Heavy Load, Excuse Kneeling, Excuse Squatting,
- *                Excuse Uniform, Excuse RMJ, Pending, NIL}.
+ *                Excuse Uniform, Excuse RMJ, Excuse Swimming,
+ *                Excuse Prolonged Standing, Excuse Upper Limb,
+ *                Excuse Lower Limb, Pending, NIL}.
  *                NIL = MO saw the recruit and cleared them with no status.
  *                startDate/endDate are display-format dates ("16 May 2026")
  *                and BOTH ENDS ARE INCLUSIVE. Pending and NIL may have no
@@ -86,13 +88,23 @@
  *                display-format ("16 May 2026"); time is free text ("0930").)
  *
  *   Leave:      id | d4 | type | startDate | endDate | days | reason
- *               (Personnel absences. type ∈ {Leave, Off-in-Lieu,
+ *               (Personnel absences. type ∈ {Leave, Off-in-Lieu, Weekend,
  *                Night's Out, Course, Guard Duty, NDP, Other}. Only
  *                Off-in-Lieu decrements the per-commander leaveQuota
  *                (roster field). Night's Out = same-day evening off-camp
  *                (start = end = same date). startDate/endDate inclusive,
  *                display-format. `days` is numeric — defaults to
  *                (endDate − startDate + 1) but is editable for half-days.)
+ *
+ *   MSK:        timestamp | type | d4 | description | physioDate | cleared
+ *               (Recruit self-reports from a Google Form ("Cougar MSK /
+ *                Physio Log") that posts directly here. type ∈
+ *                {"Report Injury", "Log Exercises"}. `cleared` is NOT
+ *                in the form — manually add the column header after the
+ *                first form response lands, leave new rows blank. The
+ *                dashboard's "Mark Cleared" action writes TRUE; runs
+ *                via the standard pushTab so cleared bits round-trip on
+ *                the next Push All.)
  */
 
 var FRONTEND_BASE_URL = "https://coon-hound.github.io/cougar-system/";
@@ -148,6 +160,28 @@ function doPost(e) {
       output = deleteRow(tab, body.rowIndex);
     } else if (action === "updateRow" && tab && body.rowIndex !== undefined && body.row) {
       output = updateRow(tab, body.rowIndex, body.row);
+    } else if (action === "sendEmail") {
+      output = sendEmailHelper(body);
+    } else if (action === "getEmailInfo") {
+      // All three Apps Script calls below require OAuth scopes that aren't
+      // granted by default. Wrap each so the missing-scope case shows a
+      // clear, actionable message instead of crashing the whole modal.
+      var senderEmail = "";
+      try { senderEmail = Session.getEffectiveUser().getEmail(); } catch (e) { /* no userinfo.email scope */ }
+      if (!senderEmail) {
+        try { senderEmail = Session.getActiveUser().getEmail(); } catch (e) { /* no userinfo.email scope */ }
+      }
+      var remainingQuota = null, quotaError = null;
+      try {
+        remainingQuota = MailApp.getRemainingDailyQuota();
+      } catch (e) {
+        quotaError = "Email scope not granted yet — grant the script.send_mail permission to enable sending.";
+      }
+      output = {
+        senderEmail: senderEmail || "",
+        remainingQuota: remainingQuota,
+        quotaError: quotaError
+      };
     } else {
       output = { error: "Invalid request" };
     }
@@ -169,6 +203,45 @@ function jsonResponse(obj) {
 function isValidAuth(token) {
   if (!token) return false;
   return PropertiesService.getScriptProperties().getProperty("auth:" + token) !== null;
+}
+
+// Sends a single HTML email via the script owner's Gmail. Used by the
+// dashboard's Fitness Report sender — one POST per recruit. Returns the
+// remaining daily quota so the frontend loop can abort cleanly when 0.
+// MailApp quota: 100/day on free Gmail, 1500/day on Workspace.
+function sendEmailHelper(body) {
+  if (!body || !body.to) return { error: "Missing recipient" };
+  var remaining = MailApp.getRemainingDailyQuota();
+  if (remaining <= 0) return { error: "Daily quota exhausted", remainingQuota: 0 };
+
+  // Convert any inline image base64 strings into Blob objects so MailApp
+  // can attach + reference them via cid:. Gmail blocks data: URIs in
+  // <img src>, but cid: works fine. Frontend sends:
+  //   inlineImages: { "chart_0": "iVBORw0KGgo...", "chart_1": "..." }
+  // and the htmlBody contains <img src="cid:chart_0">.
+  var inlineImages = {};
+  if (body.inlineImages && typeof body.inlineImages === "object") {
+    for (var key in body.inlineImages) {
+      var b64 = String(body.inlineImages[key] || "");
+      if (b64.indexOf("base64,") !== -1) b64 = b64.split("base64,")[1];
+      if (!b64) continue;
+      inlineImages[key] = Utilities.newBlob(Utilities.base64Decode(b64), "image/jpeg", key + ".jpg");
+    }
+  }
+
+  try {
+    var opts = {
+      to: body.to,
+      subject: body.subject || "Cougar Fitness Report",
+      htmlBody: body.htmlBody || "",
+      name: "Cougar Coy Training"
+    };
+    if (Object.keys(inlineImages).length) opts.inlineImages = inlineImages;
+    MailApp.sendEmail(opts);
+    return { ok: true, remainingQuota: MailApp.getRemainingDailyQuota() };
+  } catch (e) {
+    return { error: e.message, remainingQuota: remaining };
+  }
 }
 
 function redeemInvite(inviteToken) {
@@ -380,7 +453,8 @@ function readAllTabs() {
     "PolarFlow": "polar",
     "ConductDetail": "conductDetail",
     "Appointments": "appointments",
-    "Leave": "leave"
+    "Leave": "leave",
+    "MSK": "msk"
   };
 
   var result = {};

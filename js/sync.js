@@ -35,7 +35,7 @@ function renderSync(el) {
       </div>
       <div class="card">
         <h3 style="color:var(--accent)">📤 Export</h3>
-        <button class="btn" onclick="exportJSON({roster:STATE.roster,medical:STATE.medical,attendance:STATE.attendance,ippt:STATE.ippt,rm:STATE.rm,soc:STATE.soc,polar:STATE.polar,conductDetail:STATE.conductDetail,appointments:STATE.appointments,leave:STATE.leave},'cougar_backup.json')" style="margin-bottom:8px;width:100%">Full Backup (JSON)</button>
+        <button class="btn" onclick="exportJSON({roster:STATE.roster,medical:STATE.medical,attendance:STATE.attendance,ippt:STATE.ippt,rm:STATE.rm,soc:STATE.soc,polar:STATE.polar,conductDetail:STATE.conductDetail,appointments:STATE.appointments,leave:STATE.leave,msk:STATE.msk},'cougar_backup.json')" style="margin-bottom:8px;width:100%">Full Backup (JSON)</button>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn" onclick="exportCSV(STATE.roster,'roster.csv')" style="font-size:10px">Roster</button>
           <button class="btn" onclick="exportCSV(STATE.medical,'medical.csv')" style="font-size:10px">Medical</button>
@@ -47,6 +47,13 @@ function renderSync(el) {
           <button class="btn" onclick="exportCSV(STATE.conductDetail,'conduct_detail.csv')" style="font-size:10px">Detail</button>
         </div>
       </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="color:var(--pink)">📊 Email Fitness Reports</h3>
+      <p style="font-size:12px;color:var(--muted);margin:6px 0 12px;line-height:1.55">
+        Send each recruit a personalized HTML email with their Polar fitness trends, conduct attendance, and an encouragement note tailored to their data. Respects the topbar scope filter. Recruits never see anyone else's data.
+      </p>
+      <button class="btn btn-primary" onclick="openFitnessReportModal()" ${authed ? "" : "disabled"}>📨 Open Report Sender →</button>
     </div>`;
 }
 
@@ -99,7 +106,8 @@ async function doPushAll() {
     ["IPPT", STATE.ippt], ["RouteMarch", STATE.rm], ["SOC", STATE.soc], ["PolarFlow", STATE.polar],
     ["ConductDetail", STATE.conductDetail],
     ["Appointments", STATE.appointments],
-    ["Leave", STATE.leave]
+    ["Leave", STATE.leave],
+    ["MSK", STATE.msk]
   ];
   document.getElementById("push-btn").disabled = true;
   for (const [name, data] of tabs) {
