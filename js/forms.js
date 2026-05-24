@@ -39,7 +39,11 @@ function openPerson(d4) {
   });
   const latest = computed[computed.length - 1];
 
-  let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${p.id} — ${statusBadge(p.status)}</div>`;
+  // Commanders never show their 00xx id — surface rank instead. Recruits keep
+  // the existing "4D — status" header.
+  let html = p.role === "Commander"
+    ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${p.rank ? p.rank + " · " : ""}Commander${p.status ? ` — ${statusBadge(p.status)}` : ""}</div>`
+    : `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${p.id} — ${statusBadge(p.status)}</div>`;
 
   // ── Profile section ──────────────────────────────────
   const bmi = calcBMI(p);
@@ -95,7 +99,7 @@ function openPerson(d4) {
       <table style="width:100%;border-collapse:collapse">
         <thead><tr><th style="position:sticky;top:0;background:var(--surface2);padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:left">Date</th><th style="position:sticky;top:0;background:var(--surface2);padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:left">Conduct</th><th style="position:sticky;top:0;background:var(--surface2);padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Type</th><th style="position:sticky;top:0;background:var(--surface2);padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:left">Reason</th></tr></thead>
         <tbody>
-          ${cd.map(d => `<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;font-size:11px;color:var(--muted);white-space:nowrap">${d.date}${d.time ? ' <span class="mono" style="color:var(--dim)">' + d.time + '</span>' : ''}</td><td style="padding:6px 8px;font-size:11px">${d.conduct || ''}</td><td style="padding:6px 8px;text-align:center">${badge(d.type, cdTypeColor(d.type))}</td><td style="padding:6px 8px;font-size:11px;color:var(--text)">${d.reason || ''}</td></tr>`).join("")}
+          ${cd.map(d => `<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;font-size:11px;color:var(--muted);white-space:nowrap">${d.date}${d.time ? ' <span class="mono" style="color:var(--dim)">' + pad4Time(d.time) + '</span>' : ''}</td><td style="padding:6px 8px;font-size:11px">${d.conduct || ''}</td><td style="padding:6px 8px;text-align:center">${badge(d.type, cdTypeColor(d.type))}</td><td style="padding:6px 8px;font-size:11px;color:var(--text)">${d.reason || ''}</td></tr>`).join("")}
         </tbody>
       </table>
     </div>`;
@@ -137,6 +141,41 @@ function openPerson(d4) {
         <div style="color:var(--muted);font-size:11px;margin-top:2px">${medDurationLabel(m)}</div>
       </div>`;
     }).join("");
+  }
+
+  // ── MSK / Physio section ─────────────────────────────
+  // Self-reported via Google Form (separate from medical layer). Shows
+  // injury reports + exercise log timeline + whether the case is currently
+  // cleared. Helps a sergeant get the full physio picture in one glance.
+  const mskRows = STATE.msk.filter(m => m.d4 === d4);
+  if (mskRows.length) {
+    const tsOf = r => String(r.timestamp || "");
+    const injuries = mskRows.filter(r => (r.type || "").toLowerCase().includes("report"))
+      .sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1);
+    const exercises = mskRows.filter(r => (r.type || "").toLowerCase().includes("log") || (r.type || "").toLowerCase().includes("exercise"))
+      .sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1);
+    const allCleared = mskRows.every(r => r.cleared);
+    const clearedBadge = allCleared
+      ? ` <span class="badge badge-green" style="font-size:9px">CLEARED</span>`
+      : ` <span class="badge badge-pink" style="font-size:9px">ACTIVE</span>`;
+    html += `<h4 style="font-size:12px;color:var(--muted);margin:16px 0 8px">🦵 MSK / Physio <span style="color:var(--dim);font-weight:400">(${mskRows.length} record${mskRows.length === 1 ? '' : 's'})</span>${clearedBadge}</h4>`;
+    if (injuries.length) {
+      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Injury reports</div>`;
+      html += injuries.map(r => {
+        // Apps Script already formats Date cells as "21 May 2026" — use
+        // as-is. Slicing was truncating the last digit of the year.
+        const t = r.timestamp || "";
+        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--pink);font-size:12px"><div style="color:var(--muted);font-size:10px">${t}</div>${r.description || ""}</div>`;
+      }).join("");
+    }
+    if (exercises.length) {
+      html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px">Physio visits</div>`;
+      html += exercises.map(r => {
+        const d = r.physioDate || r.timestamp || "";
+        const exText = r.exercises || `<span style="color:var(--dim)">(no new exercises)</span>`;
+        return `<div style="background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:2px solid var(--teal);font-size:12px"><div style="color:var(--muted);font-size:10px">${d}</div>${exText}</div>`;
+      }).join("");
+    }
   }
 
   // ── Polar metrics section ────────────────────────────
@@ -269,7 +308,7 @@ function toggleReportSickPatterns(d4) {
   // Status mix — reveals "always NIL" (malingering signal) vs real MC/LD pattern.
   const statusCounts = {};
   med.forEach(m => { const k = m.status || "—"; statusCounts[k] = (statusCounts[k] || 0) + 1; });
-  const statusOrder = ["MC", "Warded", "LD", "RMJ", "Excuse Heavy Load", "Excuse Kneeling", "Excuse Squatting", "Excuse Uniform", "Excuse RMJ", "Pending", "NIL"];
+  const statusOrder = ["MC", "Warded", "LD", "RMJ", "Excuse Heavy Load", "Excuse Kneeling", "Excuse Squatting", "Excuse Uniform", "Excuse RMJ", "Excuse Swimming", "Excuse Prolonged Standing", "Excuse Upper Limb", "Excuse Lower Limb", "Pending", "NIL"];
   const statusRows = statusOrder.filter(s => statusCounts[s]).map(s => [s, statusCounts[s]]);
   const nilPct = med.length ? Math.round((statusCounts["NIL"] || 0) / med.length * 100) : 0;
 
@@ -301,7 +340,7 @@ function toggleReportSickPatterns(d4) {
   const statusColor = {
     "MC": "#F85149", "Warded": "#F85149",
     "LD": "#D29922", "RMJ": "#D29922",
-    "Excuse Heavy Load": "#E3B341", "Excuse Kneeling": "#E3B341", "Excuse Squatting": "#E3B341", "Excuse Uniform": "#E3B341", "Excuse RMJ": "#E3B341",
+    "Excuse Heavy Load": "#E3B341", "Excuse Kneeling": "#E3B341", "Excuse Squatting": "#E3B341", "Excuse Uniform": "#E3B341", "Excuse RMJ": "#E3B341", "Excuse Swimming": "#E3B341", "Excuse Prolonged Standing": "#E3B341", "Excuse Upper Limb": "#E3B341", "Excuse Lower Limb": "#E3B341",
     "Pending": "#8B949E", "NIL": "#39D353", "—": "#6E7681"
   };
 
@@ -729,7 +768,7 @@ function submitConductDetail() {
   const entry = {
     id: editId || nextId(),
     date: isoToDisplayDate(gv("f-date")),
-    time: gv("f-time"),
+    time: pad4Time(gv("f-time")),
     conduct: gv("f-conduct"),
     d4: gv("f-d4"),
     type: gv("f-type"),
@@ -745,14 +784,17 @@ function submitConductDetail() {
   if (!editId && STATE.apiUrl) API.appendRow("ConductDetail", entry).catch(() => {});
 }
 
-function openAppointmentForm(id) {
-  const e = id ? STATE.appointments.find(x => x.id === id) : null;
-  const dateVal = e ? displayDateToISO(e.date) || todayISO() : todayISO();
-  openModal(e ? "Edit Appointment" : "Book Appointment", `
+function openAppointmentForm(id, prefill) {
+  // `prefill` is only honored when not editing — used by the MSK widget's
+  // Book button to pre-populate d4/reason/location without typing.
+  const isEdit = !!id;
+  const e = isEdit ? STATE.appointments.find(x => x.id === id) : (prefill || null);
+  const dateVal = e?.date ? (displayDateToISO(e.date) || todayISO()) : todayISO();
+  openModal(isEdit ? "Edit Appointment" : "Book Appointment", `
     <form onsubmit="event.preventDefault(); submitAppointment(); return false">
-      <input type="hidden" id="f-entry-id" value="${e ? e.id : ""}">
+      <input type="hidden" id="f-entry-id" value="${isEdit ? e.id : ""}">
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${e ? editHint : ""}
+        ${isEdit ? editHint : ""}
         <div class="form-group"><label>Recruit</label>${rosterSelect("f-d4", true, e?.d4 || "")}</div>
         ${formField("f-reason", "Reason", "text", "Knee specialist review / IPPT retake / Board…", `required maxlength="200" value="${escapeAttr(e?.reason)}"`)}
         <div class="form-row">
@@ -760,7 +802,11 @@ function openAppointmentForm(id) {
           ${formField("f-time", "Time", "text", "0930", `required maxlength="10" value="${escapeAttr(e?.time)}"`)}
         </div>
         ${formField("f-location", "Location", "text", "MO Office / SAFTI MC / Camp HQ…", `required maxlength="100" value="${escapeAttr(e?.location)}"`)}
-        <button type="submit" class="btn btn-primary">${e ? "Save" : "Book"}</button>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer">
+          <input id="f-resolved" type="checkbox" ${e?.resolved ? "checked" : ""} style="width:16px;height:16px;cursor:pointer">
+          Mark as resolved (hides from dashboard + parade state)
+        </label>
+        <button type="submit" class="btn btn-primary">${isEdit ? "Save" : "Book"}</button>
       </div>
     </form>`);
 }
@@ -772,8 +818,10 @@ function submitAppointment() {
     reason: gv("f-reason"),
     date: isoToDisplayDate(gv("f-date")),
     time: gv("f-time"),
-    location: gv("f-location")
+    location: gv("f-location"),
+    resolved: document.getElementById("f-resolved")?.checked || false
   };
+  entry.time = pad4Time(entry.time);
   if (editId) {
     const idx = STATE.appointments.findIndex(a => a.id === editId);
     if (idx >= 0) STATE.appointments[idx] = entry;
@@ -782,6 +830,1070 @@ function submitAppointment() {
   }
   saveLocal(); closeModal(); render();
   if (!editId && STATE.apiUrl) API.appendRow("Appointments", entry).catch(() => {});
+}
+
+// Toggle clearance on every MSK row for a recruit. Acts as case-level
+// clear: if ANY row is still un-cleared we mark them all cleared; if
+// they're all already cleared we flip back to active (un-clear). Lets
+// sergeants reverse mistakes without going to the sheet.
+function toggleMSKCleared(d4) {
+  const rows = STATE.msk.filter(m => m.d4 === d4);
+  if (!rows.length) return;
+  const allCleared = rows.every(m => m.cleared);
+  rows.forEach(m => { m.cleared = !allCleared; });
+  saveLocal(); render();
+}
+
+// Module-scope toggle for the MSK widget's "Show cleared" reveal. Kept
+// here so it survives re-renders of the dashboard.
+let _mskShowCleared = false;
+function toggleMSKShowCleared() {
+  _mskShowCleared = !_mskShowCleared;
+  render();
+}
+
+// Persist a manual body-region tag list on the recruit's latest Report
+// Injury row. Reading the regions back uses getMSKRegionsForRecruit which
+// prefers manualRegions over the auto-classifier when set.
+function setMSKRegions(d4, regions) {
+  const reports = STATE.msk
+    .filter(m => m.d4 === d4 && (m.type || "").toLowerCase().includes("report"))
+    .sort((a, b) => (a.timestamp || "") < (b.timestamp || "") ? 1 : -1);
+  if (!reports.length) {
+    alert("No injury report on file for this recruit — can't tag regions.");
+    return;
+  }
+  reports[0].manualRegions = regions.join(", ");
+  saveLocal(); render();
+}
+
+// Modal for editing a recruit's body region tags. Pre-checks current
+// regions; on Save, persists via setMSKRegions and re-renders.
+function openMSKRegionMenu(d4) {
+  const current = getMSKRegionsForRecruit(d4);
+  const currentSet = new Set(current);
+  const options = MSK_REGION_LIST.map(r => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;background:${currentSet.has(r) ? MSK_REGION_COLORS[r] + "22" : "var(--surface2)"}">
+      <input type="checkbox" data-region="${escapeAttr(r)}" ${currentSet.has(r) ? "checked" : ""} style="width:14px;height:14px;cursor:pointer">
+      <span style="width:10px;height:10px;border-radius:50%;background:${MSK_REGION_COLORS[r]}"></span>
+      <span style="font-size:12px">${r}</span>
+    </label>`).join("");
+
+  openModal("Tag injury regions — " + displayPersonLabel(d4), `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.55">
+        Pick the body regions this recruit's injury affects. Overrides the auto-classifier. Push to Sheet to persist.
+      </div>
+      <div id="msk-region-list" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:4px">${options}</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" onclick="saveMSKRegionMenu('${d4}')">Save tags</button>
+      </div>
+    </div>`);
+}
+
+function saveMSKRegionMenu(d4) {
+  const checked = [...document.querySelectorAll("#msk-region-list input[type=checkbox]:checked")]
+    .map(el => el.dataset.region);
+  if (!checked.length) {
+    alert("Pick at least one region (or use 'Other' for unclassified).");
+    return;
+  }
+  setMSKRegions(d4, checked);
+  closeModal();
+}
+
+// Inline tick from the dashboard widget — flips the resolved bit. The
+// appointment disappears from dashboard/parade state immediately. To un-
+// resolve, edit the entry via the pencil icon (visible while it's still
+// in the list) or correct via the sheet.
+function toggleAppointmentResolved(id) {
+  const a = STATE.appointments.find(x => x.id === id);
+  if (!a) return;
+  a.resolved = !a.resolved;
+  saveLocal(); render();
+}
+
+// Lightweight roster-add form scoped to commanders. Recruits are added via
+// the Google Sheet directly (their data is sourced from pre-enlistment
+// nominal rolls); commanders are added ad-hoc in-app so the user doesn't
+// need to touch the sheet just to track their own team.
+function openCommanderForm(id) {
+  const e = id ? STATE.roster.find(r => r.id === id && r.role === "Commander") : null;
+  openModal(e ? "Edit Commander" : "+ Add Commander", `
+    <form onsubmit="event.preventDefault(); submitCommander(); return false">
+      <input type="hidden" id="f-entry-id" value="${e ? e.id : ""}">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${e ? editHint : ""}
+        <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px">Commander IDs use the <strong>00xx</strong> range (0001–0099). The ID is administrative — the app only ever shows rank + name.</div>
+        <div class="form-row">
+          ${formField("f-id", "4D (00xx)", "text", "0001", `required maxlength="4" pattern="00[0-9]{2}" value="${escapeAttr(e?.id)}"${e ? " readonly" : ""}`)}
+          ${formField("f-rank", "Rank", "text", "3SG / 2LT / CPT…", `required maxlength="10" value="${escapeAttr(e?.rank)}"`)}
+        </div>
+        ${formField("f-name", "Name", "text", "Nicholas Eng", `required maxlength="100" value="${escapeAttr(e?.name)}"`)}
+        ${formField("f-quota", "Off-in-Lieu Quota (days)", "number", "14", `min="0" max="365" step="1" value="${e?.leaveQuota ?? 14}"`)}
+        ${formField("f-phone", "Phone (optional)", "text", "9123 4567", `maxlength="20" value="${escapeAttr(e?.phone)}"`)}
+        <button type="submit" class="btn btn-primary">${e ? "Save" : "Add Commander"}</button>
+      </div>
+    </form>`);
+}
+function submitCommander() {
+  const editId = gv("f-entry-id");
+  const id = gv("f-id").trim();
+  if (!/^00\d{2}$/.test(id)) { alert("Commander ID must be 4 digits in the 00xx range (e.g. 0001)."); return; }
+  if (!editId && STATE.roster.some(r => r.id === id)) { alert(`ID ${id} is already taken.`); return; }
+  const entry = {
+    id,
+    name: gv("f-name"),
+    rank: gv("f-rank"),
+    role: "Commander",
+    leaveQuota: +gv("f-quota") || 0,
+    phone: gv("f-phone") || "",
+    status: "",
+    plt: "",
+    sect: ""
+  };
+  if (editId) {
+    const idx = STATE.roster.findIndex(r => r.id === editId);
+    if (idx >= 0) STATE.roster[idx] = { ...STATE.roster[idx], ...entry };
+  } else {
+    STATE.roster.push(entry);
+  }
+  saveLocal(); closeModal(); render();
+  if (!editId && STATE.apiUrl) API.appendRow("Roster", entry).catch(() => {});
+}
+
+function openLeaveForm(id) {
+  const e = id ? STATE.leave.find(x => x.id === id) : null;
+  const startVal = e ? displayDateToISO(e.startDate) || todayISO() : todayISO();
+  const endVal = e ? displayDateToISO(e.endDate) || todayISO() : todayISO();
+  openModal(e ? "Edit Leave/Out Entry" : "Log Leave / Out", `
+    <form onsubmit="event.preventDefault(); submitLeave(); return false">
+      <input type="hidden" id="f-entry-id" value="${e ? e.id : ""}">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${e ? editHint : ""}
+        <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.6">
+          <div style="font-weight:600;color:var(--text);margin-bottom:4px">📋 Pick the type</div>
+          <div><strong>Off-in-Lieu</strong> — counts against the commander's quota.</div>
+          <div><strong>Leave / Course / Guard Duty / NDP / Other</strong> — tracked but doesn't decrement the off balance.</div>
+        </div>
+        <div class="form-group"><label>Person</label>${rosterSelect("f-d4", true, e?.d4 || "")}</div>
+        ${formSelect("f-type", "Type", [["Off-in-Lieu", "Off-in-Lieu (counts toward quota)"], ["Leave", "Leave"], ["Weekend", "Weekend"], ["Night's Out", "Night's Out (same-day, evening off-camp)"], ["Course", "Course"], ["Guard Duty", "Guard Duty"], ["NDP", "NDP"], ["Other", "Other"]], true, e?.type || "")}
+        <div class="form-row">
+          ${formField("f-start", "Start date", "date", "", `required value="${startVal}" min="2020-01-01" max="2099-12-31" onchange="recalcLeaveDays()"`)}
+          ${formField("f-end", "End date", "date", "", `required value="${endVal}" min="2020-01-01" max="2099-12-31" onchange="recalcLeaveDays()"`)}
+        </div>
+        ${formField("f-days", "Days (auto-calc — editable for half-days)", "number", "1", `required min="0" max="365" step="0.5" value="${e?.days ?? 1}"`)}
+        ${formField("f-reason", "Reason / notes", "text", "APSC course / NDP rehearsal / Cleared leave balance…", `maxlength="200" value="${escapeAttr(e?.reason)}"`)}
+        <button type="submit" class="btn btn-primary">${e ? "Save" : "Log"}</button>
+      </div>
+    </form>`);
+}
+// Auto-recompute the days field from the start/end date inputs on the leave
+// form. Half-day edge case: users override after this fires.
+function recalcLeaveDays() {
+  const s = document.getElementById("f-start"), en = document.getElementById("f-end"), d = document.getElementById("f-days");
+  if (!s || !en || !d || !s.value || !en.value) return;
+  const diff = Math.round((new Date(en.value) - new Date(s.value)) / 86400000) + 1;
+  if (diff > 0) d.value = diff;
+}
+function submitLeave() {
+  const editId = +gv("f-entry-id");
+  const startIso = gv("f-start");
+  const endIso = gv("f-end");
+  if (endIso < startIso) { alert("End date must be on or after start date."); return; }
+  const entry = {
+    id: editId || nextId(),
+    d4: gv("f-d4"),
+    type: gv("f-type"),
+    startDate: isoToDisplayDate(startIso),
+    endDate: isoToDisplayDate(endIso),
+    days: +gv("f-days") || 0,
+    reason: gv("f-reason") || ""
+  };
+  if (editId) {
+    const idx = STATE.leave.findIndex(l => l.id === editId);
+    if (idx >= 0) STATE.leave[idx] = entry;
+  } else {
+    STATE.leave.push(entry);
+  }
+  saveLocal(); closeModal(); render();
+  if (!editId && STATE.apiUrl) API.appendRow("Leave", entry).catch(() => {});
+}
+
+// ─── PARADE STATE + MEDICAL STATUS GENERATORS ─────────
+// Compose the three battalion-format WhatsApp messages (First/Last Parade
+// State + standalone Medical Status list) from live STATE. The PDS spec
+// previously retyped these by hand from chats; now the dashboard generates
+// an editable preview that round-trips to clipboard in one tap.
+
+const SEP = "----------------------------------------------------------------";
+
+// "2026-05-20" → "200526" — battalion uses DDMMYY everywhere.
+function toDDMMYY(iso) {
+  if (!iso) return "";
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return m[3] + m[2] + m[1].slice(2);
+}
+
+// R/N formatting per chat convention. Commanders are rank+name, no 4D.
+// Recruits are "REC <NAME> C<4D>" — the C prefix marks Cougar in the
+// battalion-wide parade state.
+function paradeRN(d4) {
+  const r = STATE.roster.find(x => x.id === d4);
+  if (!r) return d4;
+  const name = (r.name || "").toUpperCase();
+  if (r.role === "Commander") return [r.rank, name].filter(Boolean).join(" ");
+  // Strip any existing C prefix on the id before re-adding it — some sheets
+  // store the recruit 4D as "C1415" already, which would round-trip to
+  // "CC1415" otherwise.
+  const bareId = String(r.id).replace(/^C/i, "");
+  return `REC ${name} C${bareId}`;
+}
+
+// Duration label per chat samples ("Duration: 180526 - 010626"). Pending /
+// NIL records have no end date; emit a single-day note instead.
+function paradeDuration(record) {
+  const s = displayDateToISO(record.startDate || record.date || "");
+  const e = displayDateToISO(record.endDate || "");
+  if (s && e) return `${toDDMMYY(s)} - ${toDDMMYY(e)}`;
+  if (s) return toDDMMYY(s);
+  return "";
+}
+
+// Day count for the status line ("Status: 5D MC"). Inclusive of both ends.
+function paradeStatusLabel(record) {
+  const s = displayDateToISO(record.startDate || "");
+  const e = displayDateToISO(record.endDate || "");
+  if (!record.status) return "";
+  if (!s || !e) return record.status;
+  const days = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
+  return days > 0 ? `${days}D ${record.status}` : record.status;
+}
+
+// Group medical entries by d4 so a person with multiple active statuses
+// appears under one S/N with stacked sub-entries (matches the BENJAMIN
+// C4110 sample in the chat).
+// ── Borderline MC returnees ──────────────────────────────
+// When an MC ends on day N, on day N+1 the system says the recruit is back
+// (medStatusActive returns false), but they might not have booked back in
+// before parade time. The PDS opts each one in/out via checkboxes in the
+// FP/LP report modal. Map of d4 → true means "still ATTC despite the
+// medical record having ended". Cleared on modal open and on date change.
+let _paradeOverrides = {};
+
+function findBorderlineReturnees(dateIso) {
+  if (!dateIso) return [];
+  const y = new Date(dateIso); y.setDate(y.getDate() - 1);
+  const yIso = y.toISOString().slice(0, 10);
+  return STATE.medical.filter(m =>
+    (m.status === "MC" || m.status === "Warded") &&
+    displayDateToISO(m.endDate || "") === yIso
+  );
+}
+
+function toggleBorderline(d4, checked, type) {
+  if (checked) _paradeOverrides[d4] = true;
+  else delete _paradeOverrides[d4];
+  regenerateReport(type);
+}
+
+function buildMedicalSection(label, dateIso, statusList) {
+  let matches = STATE.medical.filter(m =>
+    medStatusActive(m, dateIso) && statusList.includes(m.status)
+  );
+
+  // ATTC gets the PDS-confirmed borderline returnees folded in so they
+  // render with the same Reason/Status/Duration block as everyone else.
+  // Other sections aren't affected by overrides.
+  if (label === "ATTC") {
+    const existingD4s = new Set(matches.map(m => m.d4));
+    findBorderlineReturnees(dateIso)
+      .filter(m => _paradeOverrides[m.d4] && !existingD4s.has(m.d4))
+      .forEach(m => matches.push(m));
+  }
+  const byD4 = {};
+  matches.forEach(m => { (byD4[m.d4] = byD4[m.d4] || []).push(m); });
+  const peopleIds = Object.keys(byD4);
+
+  if (!peopleIds.length) {
+    return `${label}:\n\nS/N:\nR/N:\nReason:`;
+  }
+
+  const blocks = peopleIds.map((d4, idx) => {
+    const records = byD4[d4];
+    const sn = String(idx + 1).padStart(2, "0");
+    const rn = paradeRN(d4);
+    // Use the first record's reason as the headline — multi-status entries
+    // typically share an underlying cause (per BENJAMIN sample).
+    const reason = records[0].reason || "";
+
+    if (records.length === 1) {
+      const r = records[0];
+      return `S/N: ${sn}\nR/N: ${rn}\nReason: ${reason}\nStatus: ${paradeStatusLabel(r)}\nDuration: ${paradeDuration(r)}`;
+    }
+    // Multi-status: stack numbered Status + Duration pairs under one R/N.
+    const subStatuses = records.map((r, i) =>
+      `${i + 1}. ${paradeStatusLabel(r)}\nDuration: ${paradeDuration(r)}`
+    ).join("\n");
+    return `S/N: ${sn}\nR/N: ${rn}\nReason: ${reason}\nStatus received:\n${subStatuses}`;
+  });
+
+  return `${label}: ${String(peopleIds.length).padStart(2, "0")}\n\n${blocks.join("\n\n")}`;
+}
+
+// Parse an appointment's time field to "minutes since midnight" so we can
+// compare it against the parade time. Handles "0930", "09:30", "0700-2100"
+// (uses the END of a range — appt still ongoing if range covers parade
+// time). Returns Infinity for unparseable input so the row is shown by
+// default (safer than hiding it silently).
+function apptEndMinutes(timeStr) {
+  const s = String(timeStr || "").replace(/\s/g, "");
+  const range = s.match(/(\d{1,4}):?(\d{0,2})\s*[-–]\s*(\d{1,4}):?(\d{0,2})/);
+  if (range) {
+    const hh = String(range[3]).padStart(4, "0").slice(0, 2);
+    const mm = (range[4] || String(range[3]).padStart(4, "0").slice(2, 4)).padStart(2, "0");
+    return parseInt(hh, 10) * 60 + parseInt(mm, 10);
+  }
+  const single = s.match(/(\d{3,4})/);
+  if (single) {
+    const padded = single[1].padStart(4, "0");
+    return parseInt(padded.slice(0, 2), 10) * 60 + parseInt(padded.slice(2, 4), 10);
+  }
+  return Infinity;
+}
+
+function paradeTimeMinutes(timeStr) {
+  const padded = String(timeStr || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
+  return parseInt(padded.slice(0, 2), 10) * 60 + parseInt(padded.slice(2, 4), 10);
+}
+
+function buildAppointmentSection(dateIso, paradeTime) {
+  const paradeMins = paradeTimeMinutes(paradeTime);
+  const todays = STATE.appointments
+    .filter(a => !a.resolved)
+    .filter(a => displayDateToISO(a.date) === dateIso)
+    .filter(a => apptEndMinutes(a.time) >= paradeMins);
+  if (!todays.length) return `MEDICAL APPT:\n\nS/N:\nR/N:\nReason:\nLocation:\nDate:\nTime:`;
+  const blocks = todays.map((a, idx) => {
+    const sn = String(idx + 1).padStart(2, "0");
+    return `S/N: ${sn}\nR/N: ${paradeRN(a.d4)}\nReason: ${a.reason || ""}\nLocation: ${a.location || ""}\nDate: ${toDDMMYY(displayDateToISO(a.date))}\nTime: ${pad4Time(a.time) || ""}`;
+  });
+  return `MEDICAL APPT: ${String(todays.length).padStart(2, "0")}\n\n${blocks.join("\n\n")}`;
+}
+
+function buildOthersSection(dateIso) {
+  const active = STATE.leave.filter(l => {
+    const s = displayDateToISO(l.startDate);
+    const e = displayDateToISO(l.endDate);
+    return s && e && s <= dateIso && dateIso <= e;
+  });
+  if (!active.length) return `OTHERS:\n\nS/N:\nR/N:\nReason:`;
+  const blocks = active.map((l, idx) => {
+    const sn = String(idx + 1).padStart(2, "0");
+    // Reason = leave type + optional free text, so the section reads like
+    // the chat's "Guard Duty" / "APSC in Gedong till 24th April" entries.
+    const reasonParts = [l.type, l.reason].filter(Boolean);
+    return `S/N: ${sn}\nR/N: ${paradeRN(l.d4)}\nReason: ${reasonParts.join(" — ")}`;
+  });
+  return `OTHERS: ${String(active.length).padStart(2, "0")}\n\n${blocks.join("\n\n")}`;
+}
+
+// Strength block — TOTAL is the entire roster (recruits + commanders);
+// CURRENT is TOTAL minus anyone away today (active MC/Warded + any leave
+// covering the date). Per-platoon and commander lines break the count out.
+function buildStrengthBlock(dateIso) {
+  const all = STATE.roster;
+  const recruits = all.filter(r => r.role !== "Commander");
+  const commanders = all.filter(r => r.role === "Commander");
+
+  // Anyone away from camp today — physically not present. Union in any
+  // borderline returnees the PDS confirmed still-out so CURRENT STRENGTH
+  // matches what the ATTC section shows.
+  const attcD4s = new Set(STATE.medical
+    .filter(m => medStatusActive(m, dateIso) && (m.status === "MC" || m.status === "Warded"))
+    .map(m => m.d4));
+  findBorderlineReturnees(dateIso)
+    .filter(m => _paradeOverrides[m.d4])
+    .forEach(m => attcD4s.add(m.d4));
+  const othersD4s = new Set(STATE.leave
+    .filter(l => {
+      const s = displayDateToISO(l.startDate);
+      const e = displayDateToISO(l.endDate);
+      return s && e && s <= dateIso && dateIso <= e;
+    })
+    .map(l => l.d4));
+  const isAway = r => attcD4s.has(r.id) || othersD4s.has(r.id);
+
+  // Per-platoon recruit breakdown.
+  const recruitPlatoons = {};
+  recruits.forEach(r => {
+    const p = getPlt(r) || "?";
+    (recruitPlatoons[p] = recruitPlatoons[p] || { total: 0, away: 0 }).total++;
+    if (isAway(r)) recruitPlatoons[p].away++;
+  });
+  const pltKeys = Object.keys(recruitPlatoons).filter(k => k !== "?").sort();
+  const pltLines = pltKeys.map(p => {
+    const { total, away } = recruitPlatoons[p];
+    return `PLATOON ${p}: ${total - away}/${total}`;
+  }).join("\n");
+
+  const totalAway = all.filter(isAway).length;
+  const cmdAway = commanders.filter(isAway).length;
+
+  return [
+    `TOTAL STRENGTH: ${all.length}`,
+    `CURRENT STRENGTH: ${all.length - totalAway}`,
+    pltLines,
+    `COMMANDERS: ${commanders.length - cmdAway}/${commanders.length}`
+  ].filter(Boolean).join("\n");
+}
+
+function generateParadeStateText(type, dateIso, time) {
+  const dateStr = toDDMMYY(dateIso);
+  const header = (type === "FP" ? "FIRST" : "LAST") + " PARADE STATE";
+  const sections = [
+    buildStrengthBlock(dateIso),
+    buildMedicalSection("ATTC", dateIso, ["MC", "Warded"]),
+    buildMedicalSection("REPORT SICK", dateIso, ["Pending"]),
+    buildMedicalSection("MEDICAL STATUS", dateIso, ["LD", "RMJ", "Excuse Heavy Load", "Excuse Kneeling", "Excuse Squatting", "Excuse Uniform", "Excuse RMJ", "Excuse Swimming", "Excuse Prolonged Standing", "Excuse Upper Limb", "Excuse Lower Limb"]),
+    buildAppointmentSection(dateIso, time),
+    buildOthersSection(dateIso)
+  ];
+  return `COUGAR COMPANY\n${header}\nDATE: ${dateStr} @ ${time}\n\n${SEP}\n\n${sections.join(`\n\n${SEP}\n\n`)}\n\n${SEP}`;
+}
+
+function generateMedicalStatusText(dateIso, time) {
+  const dateStr = toDDMMYY(dateIso);
+  const heading = `${dateStr}(latest version as of ${dateStr} @${time})`;
+  const body = buildMedicalSection("MEDICAL STATUS", dateIso, ["LD", "RMJ", "Excuse Heavy Load", "Excuse Kneeling", "Excuse Squatting", "Excuse Uniform", "Excuse RMJ", "Excuse Swimming", "Excuse Prolonged Standing", "Excuse Upper Limb", "Excuse Lower Limb"]);
+  return `${heading}\n\n${body}`;
+}
+
+// MSK snapshot — one entry per active (non-cleared) case. Reason is the
+// latest injury description; Last visit is the most recent physio log
+// date for that recruit (or N/A if no exercises logged yet).
+// 4D rendered without the "C" prefix per the user's preferred format.
+function generateMSKReportText(dateIso, time) {
+  const byD4 = {};
+  STATE.msk.forEach(m => { (byD4[m.d4] = byD4[m.d4] || []).push(m); });
+
+  const tsOf = r => String(r.timestamp || "");
+  const cases = Object.entries(byD4)
+    .map(([d4, rows]) => ({ d4, rows, allCleared: rows.every(r => r.cleared) }))
+    .filter(c => !c.allCleared);
+
+  const dateStr = toDDMMYY(dateIso);
+  const heading = `MSK: ${String(cases.length).padStart(2, "0")} (as of ${dateStr} @${time})`;
+
+  if (!cases.length) return `${heading}\n\nNo active MSK cases.`;
+
+  const rnNoC = d4 => {
+    const r = STATE.roster.find(x => x.id === d4);
+    if (!r) return d4;
+    const name = (r.name || "").toUpperCase();
+    if (r.role === "Commander") return [r.rank, name].filter(Boolean).join(" ");
+    const bareId = String(r.id).replace(/^C/i, "");
+    return `REC ${name} ${bareId}`;
+  };
+
+  const blocks = cases.map((c, idx) => {
+    const sn = String(idx + 1).padStart(2, "0");
+    const injuries = c.rows.filter(r => (r.type || "").toLowerCase().includes("report"));
+    const exercises = c.rows.filter(r => (r.type || "").toLowerCase().includes("log") || (r.type || "").toLowerCase().includes("exercise"));
+    const latestInjury = [...injuries].sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1)[0];
+    const reason = latestInjury?.description || "";
+    const latestExercise = [...exercises].sort((a, b) => tsOf(a) < tsOf(b) ? 1 : -1)[0];
+    let lastVisit = "N/A";
+    if (latestExercise) {
+      const d = latestExercise.physioDate || latestExercise.timestamp || "";
+      const iso = displayDateToISO(d);
+      lastVisit = iso ? toDDMMYY(iso) : d;
+    }
+    return `S/N: ${sn}\nR/N: ${rnNoC(c.d4)}\nReason: ${reason}\nLast visit: ${lastVisit}`;
+  });
+
+  return `${heading}\n\n${blocks.join("\n\n")}`;
+}
+
+function openReportModal(type) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const defaultTime = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const titleLabel = type === "FP" ? "First Parade State"
+    : type === "LP" ? "Last Parade State"
+    : type === "MSK" ? "MSK Report"
+    : "Medical Status List";
+
+  // Borderline overrides are scoped to a single modal session — clearing
+  // here avoids stale ticks leaking from a previous open.
+  _paradeOverrides = {};
+
+  // The borderline checklist is only meaningful for FP/LP. MED/MSK reports
+  // skip the section + date onchange wiring entirely.
+  const isParade = type === "FP" || type === "LP";
+  const dateExtra = isParade
+    ? `value="${defaultDate}" required onchange="onParadeDateChange('${type}')"`
+    : `value="${defaultDate}" required`;
+
+  openModal("Generate " + titleLabel, `
+    <form onsubmit="event.preventDefault(); regenerateReport('${type}'); return false">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px">
+          Adjust date/time → tap <strong>Regenerate</strong>. The textarea is editable for last-minute tweaks (e.g. "latest version as of…", manual corrections). Tap <strong>Copy to Clipboard</strong> when ready and paste into WhatsApp.
+        </div>
+        <div class="form-row">
+          ${formField("rep-date", "Date", "date", "", dateExtra)}
+          ${formField("rep-time", "Time (HHMM)", "text", "0700", `value="${defaultTime}" maxlength="4" pattern="[0-9]{4}" required`)}
+        </div>
+        ${isParade ? `<div id="borderline-section"></div>` : ""}
+        <button type="submit" class="btn">↻ Regenerate</button>
+        <textarea id="rep-text" rows="20" spellcheck="false" style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.45;resize:vertical;white-space:pre"></textarea>
+        <button type="button" id="rep-copy-btn" class="btn btn-success" onclick="copyReportToClipboard()">📋 Copy to Clipboard</button>
+      </div>
+    </form>
+  `);
+  // Stash the report type so regenerate from the date/time onchange knows
+  // which composer to call.
+  document.getElementById("rep-text").dataset.type = type;
+  if (isParade) renderBorderlineSection(defaultDate, type);
+  regenerateReport(type);
+}
+
+// Wipes overrides when the date input changes, re-renders the checklist
+// for the new date, then regenerates the textarea.
+function onParadeDateChange(type) {
+  _paradeOverrides = {};
+  renderBorderlineSection(gv("rep-date"), type);
+  regenerateReport(type);
+}
+
+// Renders the borderline checklist for the given date. Empty section when
+// no recently-ended MCs exist (no noise on normal days).
+function renderBorderlineSection(dateIso, type) {
+  const section = document.getElementById("borderline-section");
+  if (!section) return;
+  const candidates = findBorderlineReturnees(dateIso);
+  if (!candidates.length) { section.innerHTML = ""; return; }
+  const rows = candidates.map(m => {
+    const checked = _paradeOverrides[m.d4] ? "checked" : "";
+    const endShort = toDDMMYY(displayDateToISO(m.endDate || "")) || m.endDate || "";
+    return `<label style="display:flex;align-items:center;gap:8px;font-size:11px;padding:4px 6px;cursor:pointer;border-radius:4px" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <input type="checkbox" ${checked} onchange="toggleBorderline('${m.d4}', this.checked, '${type}')" style="width:14px;height:14px;cursor:pointer">
+      <span>${paradeRN(m.d4)} — ${m.status} ended ${endShort}</span>
+    </label>`;
+  }).join("");
+  section.innerHTML = `<div style="font-size:11px;background:#D2992211;border:1px solid #D2992244;border-radius:6px;padding:8px 10px">
+    <div style="color:var(--orange);font-weight:600;margin-bottom:4px">⚠ Borderline returnees (${candidates.length}) — MC/Warded ended yesterday</div>
+    <div style="color:var(--muted);margin-bottom:6px">Tick anyone who hasn't actually booked back in yet. They'll be added to ATTC.</div>
+    ${rows}
+  </div>`;
+}
+
+function regenerateReport(type) {
+  const dateIso = gv("rep-date");
+  const time = gv("rep-time") || "0700";
+  const text = type === "MED" ? generateMedicalStatusText(dateIso, time)
+    : type === "MSK" ? generateMSKReportText(dateIso, time)
+    : generateParadeStateText(type, dateIso, time);
+  document.getElementById("rep-text").value = text;
+}
+
+async function copyReportToClipboard() {
+  const ta = document.getElementById("rep-text");
+  const btn = document.getElementById("rep-copy-btn");
+  const text = ta.value;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      const original = btn.textContent;
+      btn.textContent = "✓ Copied!";
+      setTimeout(() => { btn.textContent = original; }, 1800);
+    }
+  } catch {
+    // Fallback: select all in the textarea so the user can manually Cmd+C.
+    ta.focus(); ta.select();
+    alert("Copy blocked — text is selected, press Cmd+C / Ctrl+C to copy.");
+  }
+}
+
+// ─── FITNESS REPORTS (email to recruits) ────────────────
+// Builds a personalized HTML report per recruit with their Polar trends,
+// conduct attendance, and an auto-picked encouragement line. Charts are
+// rendered to off-screen canvases and base64-embedded so the email is
+// fully self-contained (no external image hosting needed).
+
+// Renders a Chart.js config to a base64 JPEG synchronously by disabling
+// animation. JPEG (not PNG) because MailApp.sendEmail caps the htmlBody
+// at 200KB and base64-encoded PNGs of these charts blow past that with
+// 3+ charts. JPEG at 0.85 quality is ~5× smaller with no visible loss
+// on line/bar charts.
+//
+// Trick: paint the white background AFTER Chart.js renders, using
+// destination-over so the fill sits UNDER the existing chart pixels.
+// Painting before doesn't work — Chart.js clears the canvas on draw.
+function renderChartPNG(chartConfig, width = 500, height = 230) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const chart = new Chart(canvas, {
+    ...chartConfig,
+    options: {
+      ...(chartConfig.options || {}),
+      animation: false,
+      responsive: false,
+      maintainAspectRatio: false
+    }
+  });
+  const ctx = canvas.getContext("2d");
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-over";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+  const jpeg = canvas.toDataURL("image/jpeg", 0.85);
+  chart.destroy();
+  return jpeg;
+}
+
+// Compute polar-derived metrics (efficiency, workload) for a list of
+// raw STATE.polar rows. Returns rows enriched + sorted ascending by date.
+function computeFitnessMetrics(rows) {
+  return rows.map(p => {
+    const avg = +p.avgHr || 0, max = +p.maxHr || 0, cal = +p.calories || 0, dur = +p.duration || 0;
+    return {
+      date: p.date, conduct: p.conduct,
+      iso: displayDateToISO(p.date) || "",
+      avgHr: avg, maxHr: max, calories: cal, duration: dur,
+      efficiency: avg ? +(cal / avg).toFixed(2) : 0,
+      workload: avg * dur
+    };
+  }).filter(p => p.iso).sort((a, b) => a.iso < b.iso ? -1 : 1);
+}
+
+// Counts how many distinct company conducts (date+conduct tuples) fell
+// inside [startIso, endIso]. Used for the attendance-rate denominator so
+// "attended X / Y" reflects the actual training calendar.
+function countCompanyConductsInWindow(startIso, endIso) {
+  const tuples = new Set();
+  STATE.attendance.forEach(a => {
+    const iso = displayDateToISO(a.date);
+    if (iso && iso >= startIso && iso <= endIso) tuples.add(`${iso}|${a.conduct}`);
+  });
+  return tuples.size;
+}
+
+// MC-days overlapping window — sum of (end - start + 1) clamped to window.
+function countMCDaysInWindow(d4, startIso, endIso) {
+  let days = 0;
+  STATE.medical
+    .filter(m => m.d4 === d4 && (m.status === "MC" || m.status === "Warded"))
+    .forEach(m => {
+      const s = displayDateToISO(m.startDate || "");
+      const e = displayDateToISO(m.endDate || "");
+      if (!s || !e) return;
+      const lo = s < startIso ? startIso : s;
+      const hi = e > endIso ? endIso : e;
+      if (lo > hi) return;
+      days += Math.round((new Date(hi) - new Date(lo)) / 86400000) + 1;
+    });
+  return days;
+}
+
+// Composes the full HTML email body for one recruit. Returns:
+//   { htmlForEmail, htmlForPreview, inlineImages }
+// htmlForEmail uses <img src="cid:..."> refs paired with `inlineImages`
+// (Gmail blocks data: URIs in img src — cid: works fine).
+// htmlForPreview uses inline data: URIs so it can render in an <iframe>.
+// inlineImages is { cid_name: base64_string_without_prefix } passed to
+// API.sendEmail along with htmlForEmail.
+function buildFitnessReportHTML(d4, startIso, endIso) {
+  const r = STATE.roster.find(x => x.id === d4);
+  if (!r) return `<p>Recruit ${d4} not found.</p>`;
+
+  // Pull every per-recruit data slice inside the window.
+  const polar = computeFitnessMetrics(
+    STATE.polar.filter(p => p.d4 === d4).filter(p => {
+      const iso = displayDateToISO(p.date);
+      return iso && iso >= startIso && iso <= endIso;
+    })
+  );
+  const totalCoyConducts = countCompanyConductsInWindow(startIso, endIso);
+
+  // Conducts in this window where this recruit was logged as not
+  // participating. ReportSick is excluded — it happens mid-day, after the
+  // conduct, so the recruit was present for the actual PT itself.
+  const conductDetailRows = STATE.conductDetail.filter(c => {
+    if (c.d4 !== d4) return false;
+    const iso = displayDateToISO(c.date);
+    return iso && iso >= startIso && iso <= endIso;
+  });
+  const skippedRows = conductDetailRows.filter(c => c.type === "PX" || c.type === "RSI" || c.type === "Fallout");
+  const missedCount = skippedRows.length;
+  const missedBreakdown = ["PX", "RSI", "Fallout"]
+    .map(t => ({ t, n: skippedRows.filter(m => m.type === t).length }))
+    .filter(x => x.n > 0)
+    .map(x => `${x.n} ${x.t}`).join(" · ") || "none";
+
+  // Conducts attended = total minus those they were absent from.
+  // Polar classes joined = how many of those conducts they wore the watch for.
+  const conductsAttended = Math.max(0, totalCoyConducts - missedCount);
+  const attendanceRate = totalCoyConducts ? Math.round((conductsAttended / totalCoyConducts) * 100) : 0;
+  const polarJoined = polar.length;
+  const polarRate = totalCoyConducts ? Math.round((polarJoined / totalCoyConducts) * 100) : 0;
+  const mcDays = countMCDaysInWindow(d4, startIso, endIso);
+  const ippts = STATE.ippt.filter(i => i.d4 === d4 && (displayDateToISO(i.date) || "") >= startIso && (displayDateToISO(i.date) || "") <= endIso)
+    .sort((a, b) => a.attempt - b.attempt);
+
+  // Auto-encouragement: pick strongest positive trend.
+  let encouragement;
+  if (polar.length >= 2) {
+    const first = polar[0], last = polar[polar.length - 1];
+    const avgHrDelta = first.avgHr ? ((last.avgHr - first.avgHr) / first.avgHr) : 0;
+    const effDelta = first.efficiency ? ((last.efficiency - first.efficiency) / first.efficiency) : 0;
+    if (avgHrDelta < -0.05) {
+      const drop = first.avgHr - last.avgHr;
+      encouragement = `Your average HR has dropped <strong>${drop} bpm</strong> since ${first.date} — that's your heart working smarter, not harder. Real fitness gains.`;
+    } else if (effDelta > 0.1) {
+      encouragement = `Your cardio efficiency improved by <strong>${Math.round(effDelta * 100)}%</strong> in this window — every session is paying off.`;
+    } else if (attendanceRate >= 90) {
+      encouragement = `You showed up to <strong>${attendanceRate}%</strong> of conducts in this window. Consistency is the #1 driver of fitness — keep it going.`;
+    }
+  }
+  if (!encouragement) {
+    encouragement = `Every session counts. Small daily gains add up — keep showing up.`;
+  }
+
+  // Charts — each gets a unique cid so the email can use <img src="cid:..">
+  // while the preview iframe uses the equivalent data: URI inline.
+  const labels = polar.map(p => p.date.split(" ").slice(0, 2).join(" "));
+  const charts = [];
+  const inlineImages = {};
+  let cidCounter = 0;
+  const addChart = (entry, config) => {
+    const cid = `chart_${cidCounter++}`;
+    const dataUrl = renderChartPNG(config);
+    inlineImages[cid] = dataUrl.split("base64,")[1] || "";
+    charts.push({ ...entry, cid, dataUrl });
+  };
+
+  if (polar.length) {
+    addChart({
+      emoji: "❤", title: "Heart Rate Trend",
+      caption: "Your average and peak heart rate across each session. As you get fitter, your average HR for the same workload drops — your heart pumps more blood per beat, so it doesn't have to work as hard. A steady downward trend in the blue line over weeks is the clearest signal of improving cardio fitness."
+    }, {
+      type: "line",
+      data: { labels, datasets: [
+        { label: "Avg HR", data: polar.map(p => p.avgHr), borderColor: "#58A6FF", backgroundColor: "#58A6FF22", tension: 0.3, pointRadius: 3 },
+        { label: "Max HR", data: polar.map(p => p.maxHr), borderColor: "#F85149", backgroundColor: "#F8514922", tension: 0.3, pointRadius: 3 }
+      ] },
+      options: { plugins: { legend: { position: "bottom" } }, scales: { y: { title: { display: true, text: "bpm" } } } }
+    });
+    addChart({
+      emoji: "⚡", title: "Cardio Efficiency",
+      caption: "Calories burned per heartbeat (kcal ÷ avg HR). The higher this number, the more useful work your body produces per beat. When this line trends upward, your cardiovascular system is becoming more efficient — that's the kind of fitness gain that translates directly to faster runs, longer endurance, and lower 2.4 km times."
+    }, {
+      type: "line",
+      data: { labels, datasets: [{ label: "Efficiency", data: polar.map(p => p.efficiency), borderColor: "#39D2C0", backgroundColor: "#39D2C033", tension: 0.3, fill: true, pointRadius: 3 }] },
+      options: { plugins: { legend: { display: false } } }
+    });
+    addChart({
+      emoji: "💪", title: "Cardiac Workload per Session",
+      caption: "Total stress on your heart per session (avg HR × duration in minutes). This is the volume of training you're putting in. The shape of the bars matters more than the height — consistent, regular bars build aerobic base. Big spikes followed by long gaps don't. Showing up matters more than going hard."
+    }, {
+      type: "bar",
+      data: { labels, datasets: [{ data: polar.map(p => p.workload), backgroundColor: "#BC8CFF44", borderColor: "#BC8CFF", borderWidth: 1 }] },
+      options: { plugins: { legend: { display: false } } }
+    });
+  }
+  if (ippts.length >= 2) {
+    addChart({
+      emoji: "🏃", title: "IPPT Progression",
+      caption: "Your IPPT score across attempts in this window. The work you put in at PT — the polar sessions, the consistency — shows up here as raw points on your scorecard."
+    }, {
+      type: "line",
+      data: { labels: ippts.map(i => "#" + i.attempt), datasets: [{ data: ippts.map(i => +i.score), borderColor: "#D29922", backgroundColor: "#D2992233", fill: true, tension: 0.3, pointRadius: 5 }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }
+    });
+  }
+
+  const startNice = isoToDisplayDate(startIso);
+  const endNice = isoToDisplayDate(endIso);
+  const bareId = String(r.id).replace(/^C/i, "");
+  const recHeader = `REC ${(r.name || "").toUpperCase()} ${bareId}`;
+
+  // Two parallel chart blocks — same layout/captions, different image src.
+  const noChartsBlock = `<p style="background:#FFF8E1;border:1px solid #FFE082;padding:12px;border-radius:6px;color:#5D4037;font-size:13px">No Polar sessions logged in this window — we'd love to see you in the next one.</p>`;
+  const chartsBlockForEmail = charts.length
+    ? charts.map(c => `
+        <h2 style="font-size:16px;color:#161B22;margin:24px 0 4px">${c.emoji} ${c.title}</h2>
+        <img src="cid:${c.cid}" alt="${c.title}" style="display:block;max-width:100%;height:auto;border-radius:6px;border:1px solid #E1E4E8" />
+        <p style="font-size:13px;color:#6E7681;margin:6px 0 0;line-height:1.5">${c.caption}</p>
+      `).join("")
+    : noChartsBlock;
+  const chartsBlockForPreview = charts.length
+    ? charts.map(c => `
+        <h2 style="font-size:16px;color:#161B22;margin:24px 0 4px">${c.emoji} ${c.title}</h2>
+        <img src="${c.dataUrl}" alt="${c.title}" style="display:block;max-width:100%;height:auto;border-radius:6px;border:1px solid #E1E4E8" />
+        <p style="font-size:13px;color:#6E7681;margin:6px 0 0;line-height:1.5">${c.caption}</p>
+      `).join("")
+    : noChartsBlock;
+
+  const wrapper = (chartsBlock) => `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#F6F8FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#161B22">
+  <div style="max-width:640px;margin:0 auto;padding:24px;background:#FFFFFF">
+
+    <div style="background:linear-gradient(135deg,#1F6FEB,#58A6FF);color:#fff;padding:20px;border-radius:10px;margin-bottom:20px">
+      <div style="font-size:12px;letter-spacing:2px;opacity:.85">🐆 COUGAR COY</div>
+      <div style="font-size:22px;font-weight:700;margin-top:2px">Fitness Report</div>
+      <div style="font-size:13px;opacity:.9;margin-top:8px">${recHeader}</div>
+      <div style="font-size:12px;opacity:.8">${startNice} → ${endNice}</div>
+    </div>
+
+    <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:8px;margin-bottom:8px">
+      <tr>
+        <td style="background:#F6F8FA;border:1px solid #E1E4E8;border-radius:8px;padding:14px;text-align:center;width:25%">
+          <div style="font-size:10px;color:#6E7681;text-transform:uppercase;letter-spacing:.5px">Conducts attended</div>
+          <div style="font-size:24px;font-weight:700;color:#1A7F37;margin-top:4px">${conductsAttended}/${totalCoyConducts}</div>
+          <div style="font-size:11px;color:#6E7681">${attendanceRate}% present</div>
+        </td>
+        <td style="background:#F6F8FA;border:1px solid #E1E4E8;border-radius:8px;padding:14px;text-align:center;width:25%">
+          <div style="font-size:10px;color:#6E7681;text-transform:uppercase;letter-spacing:.5px">Polar classes joined</div>
+          <div style="font-size:24px;font-weight:700;color:#1F6FEB;margin-top:4px">${polarJoined}/${totalCoyConducts}</div>
+          <div style="font-size:11px;color:#6E7681">${polarRate}% with HR data</div>
+        </td>
+        <td style="background:#F6F8FA;border:1px solid #E1E4E8;border-radius:8px;padding:14px;text-align:center;width:25%">
+          <div style="font-size:10px;color:#6E7681;text-transform:uppercase;letter-spacing:.5px">Conducts missed</div>
+          <div style="font-size:24px;font-weight:700;color:#F85149;margin-top:4px">${missedCount}</div>
+          <div style="font-size:10px;color:#6E7681;line-height:1.4">${missedBreakdown}</div>
+        </td>
+        <td style="background:#F6F8FA;border:1px solid #E1E4E8;border-radius:8px;padding:14px;text-align:center;width:25%">
+          <div style="font-size:10px;color:#6E7681;text-transform:uppercase;letter-spacing:.5px">MC days</div>
+          <div style="font-size:24px;font-weight:700;color:#D29922;margin-top:4px">${mcDays}</div>
+          <div style="font-size:11px;color:#6E7681">in window</div>
+        </td>
+      </tr>
+    </table>
+
+    ${chartsBlock}
+
+    <div style="background:linear-gradient(135deg,#3FB95011,#39D2C022);border:1px solid #3FB95044;border-radius:10px;padding:18px;margin-top:24px">
+      <div style="font-size:13px;font-weight:700;color:#1A7F37;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🎯 Keep it up</div>
+      <div style="font-size:14px;color:#161B22;line-height:1.55">${encouragement}</div>
+      <div style="font-size:13px;color:#6E7681;margin-top:14px;font-style:italic">Stay strong. Stay healthy.<br>— Cougar Coy</div>
+    </div>
+
+    <div style="font-size:10px;color:#8B949E;text-align:center;margin-top:20px;padding-top:14px;border-top:1px solid #E1E4E8">
+      This is an automated fitness report generated from your Polar HR data and conduct attendance records.
+    </div>
+  </div>
+</body></html>`;
+
+  return {
+    htmlForEmail: wrapper(chartsBlockForEmail),
+    htmlForPreview: wrapper(chartsBlockForPreview),
+    inlineImages
+  };
+}
+
+// Opens the report modal with date pickers, recruit picker, preview,
+// test send, and bulk send. Fetches sender identity + quota on open so
+// the user knows exactly which Gmail account emails will come from.
+function openFitnessReportModal() {
+  const today = todayISO();
+  const monthAgo = new Date(today); monthAgo.setMonth(monthAgo.getMonth() - 1);
+  const monthAgoIso = monthAgo.toISOString().slice(0, 10);
+  const recipients = filteredRoster().filter(r => r.role !== "Commander" && r.email);
+  const skipped = filteredRoster().filter(r => r.role !== "Commander" && !r.email).length;
+  const scopeNote = isFilterActive() ? ` in ${filterLabel()}` : "";
+
+  // Recruit options for the preview/test dropdown — include any recruit
+  // with non-empty email in the current scope.
+  const recruitOptions = recipients.length
+    ? recipients.map(r => `<option value="${r.id}">${displayPersonLabel(r.id)} — ${r.email}</option>`).join("")
+    : `<option value="">(no recruits with email in scope)</option>`;
+
+  openModal("📊 Email Fitness Reports", `
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.55">
+        Sends one personalized report per recruit. Each contains their Polar trends, conduct attendance, and an auto-picked encouragement line. Recruits never see anyone else's data.
+      </div>
+
+      <div id="sender-info" style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+        🔍 Checking sender identity…
+      </div>
+
+      <div class="form-row">
+        ${formField("rep-start", "Start date", "date", "", `value="${monthAgoIso}" required`)}
+        ${formField("rep-end", "End date", "date", "", `value="${today}" required`)}
+      </div>
+
+      <div class="form-group">
+        <label>Preview / Test recipient</label>
+        <select id="rep-preview-d4" class="topbar-select" style="width:100%">${recruitOptions}</select>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="previewFitnessReport()" ${recipients.length ? "" : "disabled"}>👁 Preview</button>
+        <input id="rep-test-email" type="email" placeholder="your@email.com" style="flex:1;min-width:160px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px">
+        <button class="btn" onclick="sendTestReport()" ${recipients.length ? "" : "disabled"}>📨 Send test</button>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin-top:-4px">"Send test" sends the selected recruit's report to YOUR address (above) — no recruit gets emailed. Use this to verify the full pipeline.</div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0">
+
+      <div style="font-size:12px;color:var(--muted)">
+        Bulk send to <strong style="color:var(--accent)">${recipients.length}</strong> recruit${recipients.length === 1 ? '' : 's'}${scopeNote}${skipped ? ` <span style="color:var(--dim)">(${skipped} skipped — no email on file)</span>` : ""}.
+      </div>
+      <button class="btn btn-success" onclick="sendAllReports()" ${recipients.length ? "" : "disabled"}>📨 Send to All Recipients →</button>
+
+      <div id="fitness-report-progress" style="display:none;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px"></div>
+    </div>`);
+
+  // Async: fetch sender identity + quota. Three possible outcomes:
+  //  1. Both succeed → show sender + quota
+  //  2. Sender blank (no userinfo scope) → show generic "from your owner
+  //     account" line + quota
+  //  3. Quota errors (no send_mail scope yet) → show clear setup steps
+  //     so the user knows how to grant the email permission
+  API.getEmailInfo().then(info => {
+    const el = document.getElementById("sender-info");
+    if (!el) return;
+    if (info.error) {
+      el.innerHTML = `⚠ Could not reach Apps Script (${info.error})`;
+      el.style.color = "var(--red)";
+      return;
+    }
+    if (info.quotaError) {
+      el.style.background = "#F8514922";
+      el.style.borderColor = "#F8514944";
+      el.style.color = "var(--text)";
+      el.innerHTML = `⚠ <strong style="color:var(--red)">Email permission not granted yet</strong> — Apps Script can't access Gmail.<br><br>
+        <strong>One-time setup (1 min):</strong><br>
+        1. Open the Apps Script editor (Extensions → Apps Script from your sheet)<br>
+        2. In the function dropdown, pick <code>sendEmailHelper</code><br>
+        3. Click <strong>Run</strong> (the play button) — it'll fail because no recipient, but Google will prompt you to <strong>Authorize</strong> Gmail send permission<br>
+        4. Grant the permission → close the editor → reopen this modal<br><br>
+        Alternative: add <code>"oauthScopes": ["https://www.googleapis.com/auth/script.send_mail"]</code> to <code>appsscript.json</code> and redeploy.`;
+      return;
+    }
+    const fromLine = info.senderEmail
+      ? `from <strong style="color:var(--accent)">${info.senderEmail}</strong>`
+      : `from your Apps Script owner account (check the Apps Script editor — top right)`;
+    el.innerHTML = `📧 Emails sent ${fromLine} · Display name: "Cougar Coy Training" · Daily quota: <strong>${info.remainingQuota}</strong>`;
+  }).catch(e => {
+    const el = document.getElementById("sender-info");
+    if (el) el.innerHTML = `⚠ Sender check failed: ${e.message}`;
+  });
+}
+
+// Renders the selected recruit's report in a secondary modal so the user
+// can sanity-check the layout + numbers before sending. Writes HTML
+// directly into the iframe document because our email HTML contains
+// single quotes that can't be safely embedded in a srcdoc attribute.
+function previewFitnessReport() {
+  const startIso = gv("rep-start");
+  const endIso = gv("rep-end");
+  if (!startIso || !endIso) { alert("Pick a start and end date first."); return; }
+  const d4 = gv("rep-preview-d4");
+  if (!d4) { alert("Pick a recruit to preview."); return; }
+  const recruit = STATE.roster.find(r => r.id === d4);
+  if (!recruit) { alert("Recruit not found."); return; }
+  const { htmlForPreview } = buildFitnessReportHTML(d4, startIso, endIso);
+
+  openModal("Preview — " + displayPersonLabel(d4), `
+    <iframe id="preview-iframe" style="width:100%;height:600px;border:1px solid var(--border);border-radius:6px;background:#fff"></iframe>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Sample for ${displayPersonLabel(d4)}${recruit.email ? ` (${recruit.email})` : ""}. Close this to go back.</div>
+  `);
+  document.querySelector(".modal")?.classList.add("wide");
+
+  setTimeout(() => {
+    const iframe = document.getElementById("preview-iframe");
+    if (!iframe) return;
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(htmlForPreview);
+    doc.close();
+  }, 50);
+}
+
+// Sends the SELECTED recruit's report to a custom email address — typically
+// the sergeant's own inbox. No recruit actually receives anything. Use
+// this to verify the rendering + email deliverability before bulk-sending.
+async function sendTestReport() {
+  const startIso = gv("rep-start");
+  const endIso = gv("rep-end");
+  if (!startIso || !endIso) { alert("Pick a start and end date first."); return; }
+  const d4 = gv("rep-preview-d4");
+  if (!d4) { alert("Pick a recruit to use as the sample report."); return; }
+  const testEmail = (gv("rep-test-email") || "").trim();
+  if (!testEmail || !/.+@.+\..+/.test(testEmail)) { alert("Enter a valid test email address."); return; }
+
+  const subject = `[TEST] Cougar Fitness Report — ${displayPersonLabel(d4)}`;
+  const { htmlForEmail, inlineImages } = buildFitnessReportHTML(d4, startIso, endIso);
+
+  const progress = document.getElementById("fitness-report-progress");
+  progress.style.display = "block";
+  progress.innerHTML = `Sending test to <strong>${testEmail}</strong>…`;
+
+  try {
+    const res = await API.sendEmail(testEmail, subject, htmlForEmail, inlineImages);
+    if (res.error) {
+      progress.innerHTML = `<span style="color:var(--red)">⚠ Test failed: ${res.error}</span>`;
+    } else {
+      progress.innerHTML = `<span style="color:var(--green)">✓ Test sent to ${testEmail}.</span> Check your inbox (and spam folder). Quota left: ${res.remainingQuota}`;
+    }
+  } catch (e) {
+    progress.innerHTML = `<span style="color:var(--red)">⚠ Test failed: ${e.message}</span>`;
+  }
+}
+
+// Sequential send loop — fires one email at a time so we can read the
+// remaining quota after each call and abort cleanly when it hits 0.
+async function sendAllReports() {
+  const startIso = gv("rep-start");
+  const endIso = gv("rep-end");
+  if (!startIso || !endIso) { alert("Pick a start and end date first."); return; }
+  const recipients = filteredRoster().filter(r => r.role !== "Commander" && r.email);
+  if (!recipients.length) { alert("No recruits with email in current scope."); return; }
+  if (!confirm(`Send fitness reports to ${recipients.length} recruits? This cannot be undone.`)) return;
+
+  const progress = document.getElementById("fitness-report-progress");
+  progress.style.display = "block";
+  let sent = 0, failed = 0, skippedQuota = 0, lastQuota = "?";
+
+  const startNice = isoToDisplayDate(startIso);
+  const endNice = isoToDisplayDate(endIso);
+  const subject = `Your Cougar Fitness Report — ${startNice} → ${endNice}`;
+
+  for (let i = 0; i < recipients.length; i++) {
+    const r = recipients[i];
+    progress.innerHTML = `Sending ${i + 1}/${recipients.length} — currently <strong>${displayPersonLabel(r.id)}</strong><br><span style="color:var(--muted)">✓ ${sent} sent · ⚠ ${failed} failed · quota left: ${lastQuota}</span>`;
+    try {
+      const { htmlForEmail, inlineImages } = buildFitnessReportHTML(r.id, startIso, endIso);
+      const res = await API.sendEmail(r.email, subject, htmlForEmail, inlineImages);
+      if (res.error) {
+        failed++;
+        if (res.remainingQuota === 0) {
+          skippedQuota = recipients.length - i - 1;
+          break;
+        }
+      } else {
+        sent++;
+        lastQuota = res.remainingQuota ?? "?";
+        if (res.remainingQuota === 0 && i < recipients.length - 1) {
+          skippedQuota = recipients.length - i - 1;
+          break;
+        }
+      }
+    } catch (e) {
+      failed++;
+    }
+  }
+
+  progress.innerHTML = `<strong style="color:var(--green)">✓ Done.</strong> ${sent} sent · ${failed} failed${skippedQuota ? ` · ${skippedQuota} not sent (daily quota hit — retry tomorrow)` : ""} · quota left: ${lastQuota}`;
 }
 
 function importBackup(input) {
@@ -797,6 +1909,8 @@ function importBackup(input) {
     if (d.polar) STATE.polar = d.polar;
     if (d.conductDetail) STATE.conductDetail = d.conductDetail;
     if (d.appointments) STATE.appointments = d.appointments;
+    if (d.leave) STATE.leave = d.leave;
+    if (d.msk) STATE.msk = d.msk;
     saveLocal(); render();
   } catch (err) { alert("Import failed: " + err.message); } };
   reader.readAsText(input.files[0]); input.value = "";

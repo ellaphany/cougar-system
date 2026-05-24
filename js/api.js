@@ -40,12 +40,14 @@ const API = {
     if (data.roster?.length) STATE.roster = normalizeRoster(data.roster);
     if (data.medical?.length) STATE.medical = normalizeMedical(data.medical);
     if (data.attendance?.length) STATE.attendance = data.attendance;
-    if (data.ippt?.length) STATE.ippt = data.ippt;
-    if (data.rm?.length) STATE.rm = data.rm;
-    if (data.soc?.length) STATE.soc = data.soc;
-    if (data.polar?.length) STATE.polar = data.polar;
-    if (data.conductDetail?.length) STATE.conductDetail = data.conductDetail;
-    if (data.appointments?.length) STATE.appointments = data.appointments;
+    if (data.ippt?.length) STATE.ippt = padD4OnLayer(data.ippt);
+    if (data.rm?.length) STATE.rm = padD4OnLayer(data.rm);
+    if (data.soc?.length) STATE.soc = padD4OnLayer(data.soc);
+    if (data.polar?.length) STATE.polar = padD4OnLayer(data.polar);
+    if (data.conductDetail?.length) STATE.conductDetail = padD4OnLayer(data.conductDetail);
+    if (data.appointments?.length) STATE.appointments = padD4OnLayer(data.appointments);
+    if (data.leave?.length) STATE.leave = padD4OnLayer(data.leave);
+    if (data.msk?.length) STATE.msk = normalizeMSK(data.msk);
     saveLocal();
     return data;
   },
@@ -54,5 +56,18 @@ const API = {
   },
   async appendRow(tabName, row) {
     return this.post({ action: "append", tab: tabName, row });
+  },
+  // Sends one HTML email through the Apps Script owner's Gmail. Returns
+  // { ok, remainingQuota } on success or { error, remainingQuota? } on
+  // failure (quota exhaustion, bad recipient, transient send error).
+  // inlineImages: optional { "cid_name": "base64_str_without_data_prefix" }
+  // map — referenced from the htmlBody as <img src="cid:cid_name">.
+  async sendEmail(to, subject, htmlBody, inlineImages) {
+    return this.post({ action: "sendEmail", to, subject, htmlBody, inlineImages });
+  },
+  // Returns sender identity + current quota without sending anything.
+  // Used by the report modal to surface "who emails will come from".
+  async getEmailInfo() {
+    return this.post({ action: "getEmailInfo" });
   }
 };
