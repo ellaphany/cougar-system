@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  const WORKER_URL = 'cougar-photo-proxy.isaaclj007.workers.dev';
+  const WORKER_URL = 'https://cougar-photo-proxy.isaaclj007.workers.dev';
 
   /* ── NOMINAL ROLL ──────────────────────────────────────────────────── */
   const FALLBACK_ROLL = {
